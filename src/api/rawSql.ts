@@ -7,6 +7,7 @@ export async function executeRawSql(request: SqlQueryRequest): Promise<SqlQueryR
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
   })
+
   if (!response.ok) {
     let message = `Unable to execute SQL query (${response.status})`
     try {
