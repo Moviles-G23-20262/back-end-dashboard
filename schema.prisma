@@ -1,0 +1,90 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MaterialCondition {
+  NEW
+  LIKE_NEW
+  GOOD
+  FAIR
+}
+
+enum MaterialStatus {
+  AVAILABLE
+  RESERVED
+  SOLD
+}
+
+model User {
+  id              String     @id @default(uuid()) @db.Uuid
+  email           String     @unique
+  passwordHash    String
+  fullName        String
+  major           String
+  faculty         String
+  rating          Float      @default(0)
+  createdAt       DateTime   @default(now())
+  materials       Material[]
+  buyerChatRooms  ChatRoom[] @relation("ChatRoomBuyer")
+  sellerChatRooms ChatRoom[] @relation("ChatRoomSeller")
+  sentMessages    Message[]
+}
+
+model Material {
+  id          String            @id @default(uuid()) @db.Uuid
+  title       String
+  description String            @db.Text
+  courseCode  String
+  price       Decimal           @db.Decimal(10, 2)
+  condition   MaterialCondition
+  status      MaterialStatus    @default(AVAILABLE)
+  imageUrls   String[]
+  sellerId    String            @db.Uuid
+  seller      User              @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  chatRooms   ChatRoom[]
+
+  @@index([courseCode])
+  @@index([status])
+  @@index([sellerId])
+}
+
+model ChatRoom {
+  id         String    @id @default(uuid()) @db.Uuid
+  materialId String    @db.Uuid
+  buyerId    String    @db.Uuid
+  sellerId   String    @db.Uuid
+  createdAt  DateTime  @default(now())
+  material   Material  @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  buyer      User      @relation("ChatRoomBuyer", fields: [buyerId], references: [id], onDelete: Restrict)
+  seller     User      @relation("ChatRoomSeller", fields: [sellerId], references: [id], onDelete: Restrict)
+  messages   Message[]
+
+  @@index([materialId])
+  @@index([buyerId])
+  @@index([sellerId])
+}
+
+model Message {
+  id         String   @id @default(uuid()) @db.Uuid
+  chatRoomId String   @db.Uuid
+  senderId   String   @db.Uuid
+  content    String   @db.Text
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  chatRoom   ChatRoom @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+  sender     User     @relation(fields: [senderId], references: [id], onDelete: Restrict)
+
+  @@index([chatRoomId, createdAt])
+  @@index([senderId])
+}
