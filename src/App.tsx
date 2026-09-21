@@ -141,7 +141,7 @@ function App() {
   const [entity, setEntity] = useState<EntityName>('User')
   const [records, setRecords] = useState<Record<EntityName, Entity[]>>({ User: [], Material: [], ChatRoom: [], Message: [], Exchange: [], WishlistItem: [], Notification: [], AnalyticsEvent: [] })
   const [search, setSearch] = useState('')
-  const [query, setQuery] = useState('SELECT * FROM "Material" LIMIT 20;')
+  const [query, setQuery] = useState('SELECT * FROM "User" LIMIT 20;')
   const [queryResult, setQueryResult] = useState<SqlQueryResult | null>(null)
   const [executedQuery, setExecutedQuery] = useState('')
   const [queryRunning, setQueryRunning] = useState(false)
