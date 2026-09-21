@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import type { KeyboardEvent, ReactNode } from 'react'
 import { createEntity, deleteEntity, listEntity, updateEntity } from './api/entities'
 import { backendLabel } from './api/config'
 import { getRouteMetadata } from './api/metadata'
 import { executeRawSql } from './api/rawSql'
 import type { AnalyticsEvent, ChatRoom, Entity, EntityName, Exchange, Material, Message, Notification, RouteMetadata, SqlQueryResult, User, WishlistItem } from './types'
+import schemaSource from '../schema.prisma?raw'
 
-type Tab = 'overview' | 'data' | 'routes' | 'sql'
+type Tab = 'overview' | 'data' | 'routes' | 'sql' | 'schema'
 type BackendStatus = 'checking' | 'connected' | 'unavailable'
 type FormValues = Record<string, string>
 type Theme = 'light' | 'dark'
@@ -272,10 +273,10 @@ function App() {
     <aside className="dashboard-sidebar fixed inset-y-0 left-0 z-10 flex w-[250px] flex-col border-r border-slate-200 bg-white px-4 py-6">
       <div className="mb-10 flex items-center gap-3 px-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-xl text-white shadow-lg shadow-indigo-200">◈</div><div><div className="font-heading text-lg font-semibold">Back End</div><div className="text-xs text-slate-400">Developer console</div></div></div>
       <div className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Workspace</div>
-      <nav className="space-y-1">{([['overview', '⌂', 'Overview'], ['data', '▦', 'Database'], ['routes', '↔', 'API routes'], ['sql', '⌘', 'SQL console']] as const).map(([key, icon, label]) => <button key={key} onClick={() => setTab(key)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium transition ${tab === key ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}><span className="text-[18px]">{icon}</span>{label}{key === 'routes' && <span className="ml-auto rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{routes.length || '—'}</span>}</button>)}</nav>
+      <nav className="space-y-1">{([['overview', '⌂', 'Overview'], ['data', '▦', 'Database'], ['routes', '↔', 'API routes'], ['sql', '⌘', 'SQL console'], ['schema', '{}', 'Schema']] as const).map(([key, icon, label]) => <button key={key} onClick={() => setTab(key)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium transition ${tab === key ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}><span className="w-5 text-center text-[16px]">{icon}</span>{label}{key === 'routes' && <span className="ml-auto rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{routes.length || '—'}</span>}</button>)}</nav>
       <div className="status-panel mt-auto rounded-2xl bg-slate-900 p-4 text-white"><div className="mb-2 flex items-center justify-between"><span className="text-xs font-semibold">Backend status</span><span className={`h-2 w-2 rounded-full ${backendStatus === 'connected' ? 'bg-emerald-400' : backendStatus === 'checking' ? 'bg-amber-400' : 'bg-red-400'}`} /></div><div className="break-all font-mono text-[11px] text-slate-400">{backendLabel} · {backendStatus}</div><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-700"><div className={`h-full rounded-full transition-all ${backendStatus === 'connected' ? 'w-full bg-emerald-400' : backendStatus === 'checking' ? 'w-1/2 bg-amber-400' : 'w-1/4 bg-red-400'}`} /></div><div className="mt-1 flex justify-between text-[10px] text-slate-500"><span>{backendStatus === 'connected' ? 'API reachable' : backendStatus === 'checking' ? 'Checking API' : 'Request failed'}</span><span>{backendStatus === 'connected' ? 'healthy' : 'attention needed'}</span></div></div>
     </aside>
-    <main className="ml-[250px] min-h-screen"><header className="dashboard-header flex h-[76px] items-center justify-between border-b border-slate-200 bg-white px-10"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-indigo-600">Developer admin</p><h1 className="font-heading text-2xl font-semibold">{tab === 'overview' ? 'Good morning, team' : tab === 'data' ? 'Database explorer' : tab === 'routes' ? 'API route inspector' : 'Raw SQL console'}</h1></div><div className="flex items-center gap-4"><input aria-label="Search records" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search records..." className="theme-input w-56 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" /><button type="button" className="theme-toggle" aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>{theme === 'light' ? '☾ Dark' : '☀ Light'}</button><div className="h-9 w-9 rounded-full bg-indigo-100 pt-2 text-center text-xs font-bold text-indigo-700">DT</div></div></header><div className="p-10">{notice && <div className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{notice}</div>}{loading ? <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-400">Loading records from {backendLabel}...</div> : tab === 'overview' ? <Overview records={records} routeCount={routes.length} setTab={setTab} /> : tab === 'data' ? <DatabaseView entity={entity} setEntity={setEntity} rows={rows} onRefresh={() => void loadRecords()} onAdd={openCreateForm} editRecord={openEditForm} deleteRecord={deleteRecord} deletingId={deletingId} /> : tab === 'routes' ? <RoutesView routes={routes} error={routesError} />         : <SqlView query={query} setQuery={setQuery} queryResult={queryResult} queryRunning={queryRunning} executedQuery={executedQuery} runQuery={() => void runQuery()} />}{formOpen && <EntityForm entity={entity} values={formValues} editing={Boolean(editingId)} saving={saving} records={records} onChange={(key, value) => setFormValues((current) => ({ ...current, [key]: value }))} onCancel={() => setFormOpen(false)} onSubmit={() => void saveRecord()} />}</div>{error && <div role="alert" className="global-error-alert flex items-center justify-between gap-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button type="button" aria-label="Close error message" onClick={() => setError('')} className="shrink-0 text-lg font-semibold leading-none text-red-500 hover:text-red-700">×</button></div>}</main>
+    <main className="ml-[250px] min-h-screen"><header className="dashboard-header flex h-[76px] items-center justify-between border-b border-slate-200 bg-white px-10"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-indigo-600">Developer admin</p><h1 className="font-heading text-2xl font-semibold">{tab === 'overview' ? 'Good morning, team' : tab === 'data' ? 'Database explorer' : tab === 'routes' ? 'API route inspector' : tab === 'schema' ? 'Prisma schema' : 'Raw SQL console'}</h1></div><div className="flex items-center gap-4"><input aria-label="Search records" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search records..." className="theme-input w-56 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" /><button type="button" className="theme-toggle" aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>{theme === 'light' ? '☾ Dark' : '☀ Light'}</button><div className="h-9 w-9 rounded-full bg-indigo-100 pt-2 text-center text-xs font-bold text-indigo-700">DT</div></div></header><div className="p-10">{notice && <div className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{notice}</div>}{loading && tab !== 'schema' ? <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-400">Loading records from {backendLabel}...</div> : tab === 'overview' ? <Overview records={records} routeCount={routes.length} setTab={setTab} /> : tab === 'data' ? <DatabaseView entity={entity} setEntity={setEntity} rows={rows} onRefresh={() => void loadRecords()} onAdd={openCreateForm} editRecord={openEditForm} deleteRecord={deleteRecord} deletingId={deletingId} /> : tab === 'routes' ? <RoutesView routes={routes} error={routesError} /> : tab === 'schema' ? <SchemaView /> : <SqlView query={query} setQuery={setQuery} queryResult={queryResult} queryRunning={queryRunning} executedQuery={executedQuery} runQuery={() => void runQuery()} />}{formOpen && <EntityForm entity={entity} values={formValues} editing={Boolean(editingId)} saving={saving} records={records} onChange={(key, value) => setFormValues((current) => ({ ...current, [key]: value }))} onCancel={() => setFormOpen(false)} onSubmit={() => void saveRecord()} />}</div>{error && <div role="alert" className="global-error-alert flex items-center justify-between gap-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button type="button" aria-label="Close error message" onClick={() => setError('')} className="shrink-0 text-lg font-semibold leading-none text-red-500 hover:text-red-700">×</button></div>}</main>
   </div>
 }
 
@@ -314,6 +315,48 @@ function RoutesView({ routes, error }: { routes: RouteMetadata[]; error: string 
   const [method, setMethod] = useState('ALL')
   const filtered = routes.filter((route) => method === 'ALL' || route.method === method)
   return <div className="space-y-6"><div className="flex items-end justify-between"><div><h2 className="font-heading text-2xl font-semibold">Registered routes</h2><p className="mt-1 text-sm text-slate-400">Live NestJS endpoint metadata from Swagger</p></div><div className="flex gap-2">{['ALL', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((value) => <button key={value} onClick={() => setMethod(value)} className={`rounded-lg px-3 py-2 text-xs font-semibold ${method === value ? 'bg-slate-900 text-white' : 'bg-white text-slate-500'}`}>{value}</button>)}</div></div>{error ? <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700"><div className="font-semibold">Swagger route metadata is unavailable</div><div className="mt-1 font-mono text-xs">{error}</div><p className="mt-3 text-xs">The backend must expose <code>/api-json</code> for this view to display live routes.</p></div> : <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">{filtered.map((route) => <div key={`${route.method}-${route.path}`} className="flex items-center gap-5 border-b border-slate-100 px-6 py-5 last:border-0"><span className={`w-16 rounded-md px-2 py-1.5 text-center text-[10px] font-bold ${methodStyles[route.method]}`}>{route.method}</span><div className="min-w-[230px] font-mono text-sm font-medium">{route.path}</div><div className="flex-1"><div className="text-sm font-semibold">{route.summary || 'No summary provided'}</div><div className="mt-1 text-xs text-slate-400">{route.controller}{route.payload && ` · ${route.payload}`}</div></div><span className="text-xs text-emerald-600">● active</span></div>)}</div>}</div>
+}
+
+function SchemaView() {
+  const lines = schemaSource.split(/\r?\n/)
+  return <div className="space-y-6"><div className="flex items-end justify-between"><div><h2 className="font-heading text-2xl font-semibold">Database schema</h2><p className="mt-1 text-sm text-slate-400">Read-only view of <span className="font-mono text-xs text-slate-500">schema.prisma</span></p></div><span className="rounded-full bg-indigo-50 px-3 py-1.5 font-mono text-xs font-semibold text-indigo-700">{lines.length} lines</span></div><div className="schema-console overflow-hidden rounded-2xl border shadow-lg"><div className="schema-console-header flex items-center justify-between border-b px-5 py-3"><div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-red-400" /><span className="h-2.5 w-2.5 rounded-full bg-amber-400" /><span className="h-2.5 w-2.5 rounded-full bg-emerald-400" /></div><span className="font-mono text-[11px]">schema.prisma</span><span className="text-[11px]">read-only</span></div><div className="schema-source overflow-auto p-5"><pre className="schema-code min-w-max font-mono text-[13px] leading-6"><code>{lines.map((line, index) => <div key={index} className="flex"><span className="schema-line-number mr-6 inline-block w-8 select-none text-right">{index + 1}</span><span>{renderSchemaLine(line)}</span></div>)}</code></pre></div></div></div>
+}
+
+const schemaKeywords = new Set(['generator', 'datasource', 'model', 'enum'])
+const schemaTypes = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Decimal', 'Json', 'User', 'Material', 'ChatRoom', 'Message', 'Exchange', 'WishlistItem', 'Notification', 'AnalyticsEvent'])
+const schemaConstants = new Set(['NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'AVAILABLE', 'RESERVED', 'SOLD', 'BOOKS', 'CALCULATORS', 'LAB_EQUIPMENT', 'FURNITURE', 'OTHER', 'SMART_MATCH', 'LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED'])
+
+function renderSchemaLine(line: string): ReactNode {
+  if (line.trim().startsWith('//')) return <span className="schema-comment">{line}</span>
+  const tokenPattern = /("[^"]*"|\b\d+(?:\.\d+)?\b|@@?[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?|\b[A-Za-z_]\w*\b|[{}[\]():,=@])/g
+  const tokens: ReactNode[] = []
+  let cursor = 0
+  let wordIndex = 0
+  let annotationContext = false
+  let match: RegExpExecArray | null
+  while ((match = tokenPattern.exec(line)) !== null) {
+    if (match.index > cursor) tokens.push(line.slice(cursor, match.index))
+    const token = match[0]
+    const previousText = line.slice(0, match.index)
+    const isWord = /^[A-Za-z_]\w*$/.test(token)
+    let tokenClass = 'schema-punctuation'
+    if (token.startsWith('"')) tokenClass = 'schema-string'
+    else if (/^\d/.test(token)) tokenClass = 'schema-number'
+    else if (token.startsWith('@')) {
+      tokenClass = 'schema-annotation'
+      annotationContext = true
+    } else if (schemaKeywords.has(token) && !previousText.trim()) tokenClass = 'schema-keyword'
+    else if (isWord && annotationContext) tokenClass = 'schema-annotation-identifier'
+    else if (isWord && schemaTypes.has(token)) tokenClass = 'schema-type'
+    else if (isWord && schemaConstants.has(token)) tokenClass = 'schema-constant'
+    else if (isWord && wordIndex === 0 && /^\s+\w/.test(line)) tokenClass = 'schema-property'
+    if (isWord) wordIndex += 1
+    if (token === ',' || token === ')') annotationContext = false
+    tokens.push(<span key={`${match.index}-${token}`} className={tokenClass}>{token}</span>)
+    cursor = match.index + token.length
+  }
+  if (cursor < line.length) tokens.push(line.slice(cursor))
+  return tokens.length ? tokens : ' '
 }
 
 function SqlView({ query, setQuery, queryResult, queryRunning, executedQuery, runQuery }: { query: string; setQuery: (query: string) => void; queryResult: SqlQueryResult | null; queryRunning: boolean; executedQuery: string; runQuery: () => void }) {

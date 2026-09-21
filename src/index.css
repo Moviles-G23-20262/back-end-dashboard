@@ -481,6 +481,55 @@ html, body, #root {
   background: var(--bg-surface) !important;
   color: var(--tx) !important;
 }
+.schema-console {
+  background: var(--bg-surface) !important;
+  border-color: var(--bd) !important;
+}
+.schema-console-header {
+  background: var(--bg-elevated) !important;
+  border-color: var(--bd) !important;
+  color: var(--tx-2) !important;
+}
+.schema-console-header span:last-child {
+  color: var(--tx-muted) !important;
+}
+.schema-source {
+  background: var(--bg-surface) !important;
+}
+.schema-code {
+  color: var(--tx-2) !important;
+}
+.schema-line-number {
+  color: var(--tx-muted) !important;
+}
+.schema-comment {
+  color: var(--tx-muted) !important;
+}
+.schema-property {
+  color: var(--tx) !important;
+}
+.schema-keyword {
+  color: var(--accent-hi) !important;
+}
+.schema-type {
+  color: var(--success-color) !important;
+}
+.schema-annotation,
+.schema-annotation-identifier {
+  color: var(--warning-color) !important;
+}
+.schema-string {
+  color: var(--color-success-300) !important;
+}
+.schema-number {
+  color: var(--color-info-400) !important;
+}
+.schema-constant {
+  color: var(--color-primary-300) !important;
+}
+.schema-punctuation {
+  color: var(--tx-muted) !important;
+}
 [data-theme="dark"] .dashboard-shell .bg-slate-900,
 [data-theme="dark"] .dashboard-shell .bg-slate-800 {
   background: var(--bg-elevated) !important;
