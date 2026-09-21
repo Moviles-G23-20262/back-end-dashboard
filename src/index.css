@@ -168,6 +168,26 @@ html, body, #root {
 
 * { box-sizing: border-box; }
 ::-webkit-scrollbar { width: 0; background: transparent; }
+.table-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: var(--color-neutral-400) var(--bg-elevated);
+}
+.table-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 10px;
+}
+.table-scroll::-webkit-scrollbar-track {
+  background: var(--bg-elevated);
+  border-radius: 999px;
+}
+.table-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-400);
+  border: 2px solid var(--bg-elevated);
+  border-radius: 999px;
+}
+.table-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--color-neutral-500);
+}
 
 /* ── Font utilities ──────────────────────────────────────── */
 .font-chewy    { font-family: var(--font-heading); }
@@ -399,6 +419,9 @@ html, body, #root {
 .dashboard-shell .bg-emerald-50,
 .dashboard-shell .bg-red-50 {
   background: var(--bg-elevated) !important;
+}
+.dashboard-shell .theme-table-sticky {
+  background: var(--bg-surface) !important;
 }
 .dashboard-shell .text-indigo-700,
 .dashboard-shell .text-indigo-600 {

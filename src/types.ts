@@ -1,5 +1,8 @@
 export type MaterialCondition = 'NEW' | 'LIKE_NEW' | 'GOOD' | 'FAIR'
 export type MaterialStatus = 'AVAILABLE' | 'RESERVED' | 'SOLD'
+export type MaterialCategory = 'BOOKS' | 'CALCULATORS' | 'LAB_EQUIPMENT' | 'FURNITURE' | 'OTHER'
+export type NotificationType = 'SMART_MATCH' | 'OTHER'
+export type AnalyticsEventType = 'LISTING_VIEW' | 'SEARCH' | 'CONTACT_SELLER' | 'WISHLIST_ADD' | 'WISHLIST_REMOVE' | 'NOTIFICATION_SENT' | 'NOTIFICATION_OPENED'
 
 export interface User {
   id: string
@@ -7,7 +10,7 @@ export interface User {
   passwordHash: string
   fullName: string
   major: string
-  faculty: string
+  faculty: string | null
   rating: number
   createdAt: string
 }
@@ -16,12 +19,17 @@ export interface Material {
   id: string
   title: string
   description: string
-  courseCode: string
+  courseCode: string | null
   price: number
-  condition: MaterialCondition
+  condition: MaterialCondition | null
   status: MaterialStatus
   imageUrls: string[]
   sellerId: string
+  edition: string | null
+  model: string | null
+  category: MaterialCategory
+  createdAt: string
+  updatedAt: string
 }
 
 export interface ChatRoom {
@@ -41,7 +49,42 @@ export interface Message {
   createdAt: string
 }
 
-export type EntityName = 'User' | 'Material' | 'ChatRoom' | 'Message'
+export interface Exchange {
+  id: string
+  materialId: string
+  buyerId: string
+  sellerId: string
+  price: number
+  completedAt: string
+}
+
+export interface WishlistItem {
+  id: string
+  userId: string
+  materialId: string
+  createdAt: string
+}
+
+export interface Notification {
+  id: string
+  userId: string
+  materialId: string | null
+  type: NotificationType
+  sentAt: string
+  openedAt: string | null
+}
+
+export interface AnalyticsEvent {
+  id: string
+  userId: string | null
+  materialId: string | null
+  eventType: AnalyticsEventType
+  metadata: Record<string, unknown> | null
+  occurredAt: string
+}
+
+export type EntityName = 'User' | 'Material' | 'ChatRoom' | 'Message' | 'Exchange' | 'WishlistItem' | 'Notification' | 'AnalyticsEvent'
+export type Entity = User | Material | ChatRoom | Message | Exchange | WishlistItem | Notification | AnalyticsEvent
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 export interface RouteMetadata {
