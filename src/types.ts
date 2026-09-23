@@ -2,6 +2,7 @@ export type MaterialCondition = 'NEW' | 'LIKE_NEW' | 'GOOD' | 'FAIR'
 export type MaterialStatus = 'AVAILABLE' | 'RESERVED' | 'SOLD'
 export type MaterialCategory = 'BOOKS' | 'CALCULATORS' | 'LAB_EQUIPMENT' | 'FURNITURE' | 'OTHER'
 export type NotificationType = 'SMART_MATCH' | 'OTHER'
+export type MeetingZoneType = 'LIBRARY' | 'STUDENT_CENTER' | 'BUILDING_LOBBY' | 'PLAZA'
 export type AnalyticsEventType = 'LISTING_VIEW' | 'SEARCH' | 'CONTACT_SELLER' | 'WISHLIST_ADD' | 'WISHLIST_REMOVE' | 'NOTIFICATION_SENT' | 'NOTIFICATION_OPENED'
 
 export interface User {
@@ -56,6 +57,26 @@ export interface Exchange {
   sellerId: string
   price: number
   completedAt: string
+  meetingPointId: string | null
+  lat: number | null
+  lng: number | null
+}
+
+export interface MeetingPoint {
+  id: string
+  name: string
+  detail: string | null
+  zoneType: MeetingZoneType
+  isMonitored: boolean
+  lat: number
+  lng: number
+  createdAt: string
+}
+
+export interface BusinessQuestionQuery {
+  id: string
+  label: string
+  sql: string
 }
 
 export interface WishlistItem {

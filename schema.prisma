@@ -98,14 +98,33 @@ model Exchange {
   price       Decimal  @db.Decimal(10, 2)
   completedAt DateTime @default(now())
 
-  material Material @relation(fields: [materialId], references: [id])
-  buyer    User     @relation("ExchangeBuyer", fields: [buyerId], references: [id])
-  seller   User     @relation("ExchangeSeller", fields: [sellerId], references: [id])
+  meetingPointId String? @db.Uuid
+  lat            Float?
+  lng            Float?
+
+  material     Material      @relation(fields: [materialId], references: [id])
+  buyer        User          @relation("ExchangeBuyer", fields: [buyerId], references: [id])
+  seller       User          @relation("ExchangeSeller", fields: [sellerId], references: [id])
+  meetingPoint MeetingPoint? @relation(fields: [meetingPointId], references: [id], onDelete: SetNull)
 
   //@@index([materialId])
   @@index([buyerId])
   @@index([sellerId])
   @@index([completedAt])
+  @@index([meetingPointId])
+}
+
+model MeetingPoint {
+  id          String          @id @default(uuid()) @db.Uuid
+  name        String
+  detail      String?
+  zoneType    MeetingZoneType
+  isMonitored Boolean         @default(false)
+  lat         Float
+  lng         Float
+  createdAt   DateTime        @default(now())
+
+  exchanges Exchange[]
 }
 
 model WishlistItem {
@@ -175,6 +194,13 @@ enum MaterialCategory {
   LAB_EQUIPMENT
   FURNITURE
   OTHER
+}
+
+enum MeetingZoneType {
+  LIBRARY
+  STUDENT_CENTER
+  BUILDING_LOBBY
+  PLAZA
 }
 
 enum NotificationType {
