@@ -104,8 +104,8 @@ export interface AnalyticsEvent {
   occurredAt: string
 }
 
-export type EntityName = 'User' | 'Material' | 'ChatRoom' | 'Message' | 'Exchange' | 'WishlistItem' | 'Notification' | 'AnalyticsEvent'
-export type Entity = User | Material | ChatRoom | Message | Exchange | WishlistItem | Notification | AnalyticsEvent
+export type EntityName = 'User' | 'Material' | 'ChatRoom' | 'Message' | 'Exchange' | 'MeetingPoint' | 'WishlistItem' | 'Notification' | 'AnalyticsEvent'
+export type Entity = User | Material | ChatRoom | Message | Exchange | MeetingPoint | WishlistItem | Notification | AnalyticsEvent
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 export interface RouteMetadata {
