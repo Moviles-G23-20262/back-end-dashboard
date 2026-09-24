@@ -4,7 +4,7 @@ import { createEntity, deleteEntity, listEntity, updateEntity } from './api/enti
 import { backendLabel } from './api/config'
 import { getRouteMetadata } from './api/metadata'
 import { executeRawSql } from './api/rawSql'
-import type { AnalyticsEvent, ChatRoom, Entity, EntityName, Exchange, Material, Message, Notification, RouteMetadata, SqlQueryResult, User, WishlistItem } from './types'
+import type { AnalyticsEvent, BusinessQuestionQuery, ChatRoom, Entity, EntityName, Exchange, Material, MeetingPoint, Message, Notification, RouteMetadata, SqlQueryResult, User, WishlistItem } from './types'
 import schemaSource from '../schema.prisma?raw'
 
 type Tab = 'overview' | 'data' | 'routes' | 'sql' | 'schema'
@@ -12,20 +12,21 @@ type BackendStatus = 'checking' | 'connected' | 'unavailable'
 type FormValues = Record<string, string>
 type Theme = 'light' | 'dark'
 
-const labels: Record<EntityName, string> = { User: 'Users', Material: 'Materials', ChatRoom: 'Chat rooms', Message: 'Messages', Exchange: 'Exchanges', WishlistItem: 'Wishlist items', Notification: 'Notifications', AnalyticsEvent: 'Analytics events' }
+const labels: Record<EntityName, string> = { User: 'Users', Material: 'Materials', ChatRoom: 'Chat rooms', Message: 'Messages', Exchange: 'Exchanges', MeetingPoint: 'Meeting points', WishlistItem: 'Wishlist items', Notification: 'Notifications', AnalyticsEvent: 'Analytics events' }
 const entityHeaders: Record<EntityName, string[]> = {
   User: ['id', 'email', 'fullName', 'major', 'faculty', 'rating', 'createdAt'],
   Material: ['id', 'title', 'courseCode', 'price', 'condition', 'status', 'category', 'sellerId', 'createdAt', 'updatedAt'],
   ChatRoom: ['id', 'materialId', 'buyerId', 'sellerId', 'createdAt'],
   Message: ['id', 'chatRoomId', 'senderId', 'content', 'isRead', 'createdAt'],
   Exchange: ['id', 'materialId', 'buyerId', 'sellerId', 'price', 'completedAt'],
+  MeetingPoint: ['id', 'name', 'zoneType', 'isMonitored', 'lat', 'lng', 'createdAt'],
   WishlistItem: ['id', 'userId', 'materialId', 'createdAt'],
   Notification: ['id', 'userId', 'materialId', 'type', 'sentAt', 'openedAt'],
   AnalyticsEvent: ['id', 'userId', 'materialId', 'eventType', 'occurredAt'],
 }
 const methodStyles: Record<string, string> = { GET: 'bg-blue-100 text-blue-700', POST: 'bg-emerald-100 text-emerald-700', PUT: 'bg-amber-100 text-amber-700', PATCH: 'bg-violet-100 text-violet-700', DELETE: 'bg-red-100 text-red-700' }
 
-const formFields: Record<EntityName, Array<{ key: string; label: string; type?: string; required?: boolean }>> = {
+const formFields: Record<EntityName, Array<{ key: string; label: string; type?: string; required?: boolean; step?: string }>> = {
   User: [
     { key: 'email', label: 'Email', type: 'email', required: true },
     { key: 'passwordHash', label: 'Password hash', required: true },
@@ -64,6 +65,14 @@ const formFields: Record<EntityName, Array<{ key: string; label: string; type?: 
     { key: 'sellerId', label: 'Seller ID', required: true },
     { key: 'price', label: 'Price', type: 'number', required: true },
     { key: 'completedAt', label: 'Completed at', type: 'datetime-local' },
+  ],
+  MeetingPoint: [
+    { key: 'name', label: 'Name', required: true },
+    { key: 'detail', label: 'Detail' },
+    { key: 'zoneType', label: 'Zone type', required: true },
+    { key: 'isMonitored', label: 'Monitored', type: 'checkbox' },
+    { key: 'lat', label: 'Latitude', type: 'number', required: true, step: 'any' },
+    { key: 'lng', label: 'Longitude', type: 'number', required: true, step: 'any' },
   ],
   WishlistItem: [
     { key: 'userId', label: 'User ID', required: true },
@@ -140,7 +149,7 @@ function App() {
   })
   const [tab, setTab] = useState<Tab>('overview')
   const [entity, setEntity] = useState<EntityName>('User')
-  const [records, setRecords] = useState<Record<EntityName, Entity[]>>({ User: [], Material: [], ChatRoom: [], Message: [], Exchange: [], WishlistItem: [], Notification: [], AnalyticsEvent: [] })
+  const [records, setRecords] = useState<Record<EntityName, Entity[]>>({ User: [], Material: [], ChatRoom: [], Message: [], Exchange: [], MeetingPoint: [], WishlistItem: [], Notification: [], AnalyticsEvent: [] })
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('SELECT * FROM "User" LIMIT 20;')
   const [queryResult, setQueryResult] = useState<SqlQueryResult | null>(null)
@@ -170,17 +179,18 @@ function App() {
     setError('')
     setBackendStatus('checking')
     try {
-      const [users, materials, chatRooms, messages, exchanges, wishlistItems, notifications, analyticsEvents] = await Promise.all([
+      const [users, materials, chatRooms, messages, exchanges, meetingPoints, wishlistItems, notifications, analyticsEvents] = await Promise.all([
         listEntity<User>('User'),
         listEntity<Material>('Material'),
         listEntity<ChatRoom>('ChatRoom'),
         listEntity<Message>('Message'),
         listEntity<Exchange>('Exchange'),
+        listEntity<MeetingPoint>('MeetingPoint'),
         listEntity<WishlistItem>('WishlistItem'),
         listEntity<Notification>('Notification'),
         listEntity<AnalyticsEvent>('AnalyticsEvent'),
       ])
-      setRecords({ User: users, Material: materials, ChatRoom: chatRooms, Message: messages, Exchange: exchanges, WishlistItem: wishlistItems, Notification: notifications, AnalyticsEvent: analyticsEvents })
+      setRecords({ User: users, Material: materials, ChatRoom: chatRooms, Message: messages, Exchange: exchanges, MeetingPoint: meetingPoints, WishlistItem: wishlistItems, Notification: notifications, AnalyticsEvent: analyticsEvents })
       setBackendStatus('connected')
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load backend records')
@@ -295,6 +305,7 @@ function EntityForm({ entity, values, editing, saving, records, onChange, onCanc
     status: ['AVAILABLE', 'RESERVED', 'SOLD'],
     category: ['BOOKS', 'CALCULATORS', 'LAB_EQUIPMENT', 'FURNITURE', 'OTHER'],
     type: ['SMART_MATCH', 'OTHER'],
+    zoneType: ['LIBRARY', 'STUDENT_CENTER', 'BUILDING_LOBBY', 'PLAZA'],
     eventType: ['LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED'],
     sellerId: records.User.map((record) => record.id),
     buyerId: records.User.map((record) => record.id),
@@ -303,7 +314,7 @@ function EntityForm({ entity, values, editing, saving, records, onChange, onCanc
     materialId: records.Material.map((record) => record.id),
     chatRoomId: records.ChatRoom.map((record) => record.id),
   }
-  return <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/40 p-6"><form onSubmit={(event) => { event.preventDefault(); onSubmit() }} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-7 shadow-2xl"><div className="mb-6 flex items-start justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">{editing ? 'Update record' : 'Create record'}</p><h2 className="mt-1 font-heading text-2xl font-semibold">{labels[entity]}</h2></div><button type="button" onClick={onCancel} className="text-xl text-slate-400 hover:text-slate-700">×</button></div><div className="grid grid-cols-2 gap-4">{fields.map((field) => <label key={field.key} className={field.type === 'checkbox' ? 'col-span-2 flex items-center gap-3 text-sm font-medium' : 'block'}>{field.type === 'checkbox' ? <input type="checkbox" checked={values[field.key] === 'true'} onChange={(event) => onChange(field.key, String(event.target.checked))} /> : <><span className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-slate-500">{field.label}{editing && field.key === 'passwordHash' && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-400">Optional</span>}</span>{options[field.key] ? <select required={field.required} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-indigo-400"><option value="">Select {field.label.toLowerCase()}</option>{options[field.key].map((option) => <option key={option} value={option}>{option}</option>)}</select> : <input required={field.required && !(editing && field.key === 'passwordHash')} type={field.type ?? 'text'} placeholder={editing && field.key === 'passwordHash' && !values[field.key] ? 'Not returned by backend' : undefined} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400" />}</>}</label>)}</div><div className="mt-7 flex justify-end gap-3"><button type="button" onClick={onCancel} className="btn-secondary">Cancel</button><button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving...' : editing ? 'Save changes' : 'Create record'}</button></div></form></div>
+  return <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/40 p-6"><form onSubmit={(event) => { event.preventDefault(); onSubmit() }} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-7 shadow-2xl"><div className="mb-6 flex items-start justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">{editing ? 'Update record' : 'Create record'}</p><h2 className="mt-1 font-heading text-2xl font-semibold">{labels[entity]}</h2></div><button type="button" onClick={onCancel} className="text-xl text-slate-400 hover:text-slate-700">×</button></div><div className="grid grid-cols-2 gap-4">{fields.map((field) => <label key={field.key} className={field.type === 'checkbox' ? 'col-span-2 flex items-center gap-3 text-sm font-medium' : 'block'}>{field.type === 'checkbox' ? <input type="checkbox" checked={values[field.key] === 'true'} onChange={(event) => onChange(field.key, String(event.target.checked))} /> : <><span className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-slate-500">{field.label}{editing && field.key === 'passwordHash' && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-400">Optional</span>}</span>{options[field.key] ? <select required={field.required} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-indigo-400"><option value="">Select {field.label.toLowerCase()}</option>{options[field.key].map((option) => <option key={option} value={option}>{option}</option>)}</select> : <input required={field.required && !(editing && field.key === 'passwordHash')} type={field.type ?? 'text'} step={field.step} placeholder={editing && field.key === 'passwordHash' && !values[field.key] ? 'Not returned by backend' : undefined} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400" />}</>}</label>)}</div><div className="mt-7 flex justify-end gap-3"><button type="button" onClick={onCancel} className="btn-secondary">Cancel</button><button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving...' : editing ? 'Save changes' : 'Create record'}</button></div></form></div>
 }
 
 function DatabaseView({ entity, setEntity, rows, onRefresh, onAdd, editRecord, deleteRecord, deletingId }: { entity: EntityName; setEntity: (entity: EntityName) => void; rows: Entity[]; onRefresh: () => void; onAdd: () => void; editRecord: (id: string) => void; deleteRecord: (id: string) => void; deletingId: string | null }) {
@@ -322,9 +333,23 @@ function SchemaView() {
   return <div className="space-y-6"><div className="flex items-end justify-between"><div><h2 className="font-heading text-2xl font-semibold">Database schema</h2><p className="mt-1 text-sm text-slate-400">Read-only view of <span className="font-mono text-xs text-slate-500">schema.prisma</span></p></div><span className="rounded-full bg-indigo-50 px-3 py-1.5 font-mono text-xs font-semibold text-indigo-700">{lines.length} lines</span></div><div className="schema-console overflow-hidden rounded-2xl border shadow-lg"><div className="schema-console-header flex items-center justify-between border-b px-5 py-3"><div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-red-400" /><span className="h-2.5 w-2.5 rounded-full bg-amber-400" /><span className="h-2.5 w-2.5 rounded-full bg-emerald-400" /></div><span className="font-mono text-[11px]">schema.prisma</span><span className="text-[11px]">read-only</span></div><div className="schema-source overflow-auto p-5"><pre className="schema-code min-w-max font-mono text-[13px] leading-6"><code>{lines.map((line, index) => <div key={index} className="flex"><span className="schema-line-number mr-6 inline-block w-8 select-none text-right">{index + 1}</span><span>{renderSchemaLine(line)}</span></div>)}</code></pre></div></div></div>
 }
 
+const businessQuestionQueries: BusinessQuestionQuery[] = [
+  {
+    id: 'BQ12',
+    label: 'BQ12 · Meeting spots by hour',
+    sql: `SELECT mp.name AS meeting_point,
+       EXTRACT(HOUR FROM e."completedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota')::int AS local_hour,
+       COUNT(*) AS exchanges
+FROM "Exchange" e
+JOIN "MeetingPoint" mp ON mp.id = e."meetingPointId"
+GROUP BY mp.name, local_hour
+ORDER BY local_hour, exchanges DESC;`,
+  },
+]
+
 const schemaKeywords = new Set(['generator', 'datasource', 'model', 'enum'])
-const schemaTypes = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Decimal', 'Json', 'User', 'Material', 'ChatRoom', 'Message', 'Exchange', 'WishlistItem', 'Notification', 'AnalyticsEvent'])
-const schemaConstants = new Set(['NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'AVAILABLE', 'RESERVED', 'SOLD', 'BOOKS', 'CALCULATORS', 'LAB_EQUIPMENT', 'FURNITURE', 'OTHER', 'SMART_MATCH', 'LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED'])
+const schemaTypes = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Decimal', 'Json', 'User', 'Material', 'ChatRoom', 'Message', 'Exchange', 'WishlistItem', 'Notification', 'AnalyticsEvent', 'MeetingPoint'])
+const schemaConstants = new Set(['NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'AVAILABLE', 'RESERVED', 'SOLD', 'BOOKS', 'CALCULATORS', 'LAB_EQUIPMENT', 'FURNITURE', 'OTHER', 'SMART_MATCH', 'LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED', 'LIBRARY', 'STUDENT_CENTER', 'BUILDING_LOBBY', 'PLAZA'])
 
 function renderSchemaLine(line: string): ReactNode {
   if (line.trim().startsWith('//')) return <span className="schema-comment">{line}</span>
@@ -366,7 +391,7 @@ function SqlView({ query, setQuery, queryResult, queryRunning, executedQuery, ru
       runQuery()
     }
   }
-  return <div className="sql-view space-y-6"><div><h2 className="font-heading text-2xl font-semibold">Raw SQL console</h2><p className="mt-1 text-sm text-slate-400">Execute SQL directly against the development database.</p><div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-xs leading-5 text-indigo-800">Supports row-returning statements such as SELECT, WITH, SHOW, EXPLAIN, VALUES, TABLE, and statements with RETURNING. INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, and other non-row statements are also supported. Comments, semicolons, and empty-query validation are handled by the backend.</div></div><div className="sql-console overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-lg"><div className="flex items-center justify-between border-b border-slate-700 px-5 py-3"><div className="flex gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-red-400" /><span className="h-2.5 w-2.5 rounded-full bg-amber-400" /><span className="h-2.5 w-2.5 rounded-full bg-emerald-400" /></div><span className="font-mono text-[11px] text-slate-500">query.sql</span><span className="text-[11px] text-slate-500">Ctrl/Cmd + Enter to run</span></div><textarea value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={handleKeyDown} className="sql-editor h-48 w-full resize-none bg-slate-900 p-6 font-mono text-sm leading-7 text-slate-200 outline-none" spellCheck={false} /><div className="flex items-center justify-between border-t border-slate-700 px-5 py-3"><span className="font-mono text-xs text-slate-500">PostgreSQL · read/write enabled</span><button onClick={runQuery} disabled={queryRunning} className="rounded-lg bg-indigo-500 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60">{queryRunning ? 'Running...' : '▶ Run query'}</button></div></div>{queryResult && <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h3 className="text-sm font-semibold">Query results</h3><p className="mt-1 text-xs text-slate-400">{queryResult.rowCount} affected/returned rows · {queryResult.durationMs}ms</p></div><span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-600">Success</span></div><div className="border-b border-slate-100 bg-slate-50 px-5 py-3 font-mono text-xs text-slate-500">{executedQuery}</div>{queryResult.columns.length === 0 ? <div className="p-8 text-sm text-slate-500">{queryResult.rowCount === 0 ? 'The query executed successfully, but the database returned no rows.' : 'Statement executed successfully. No row columns were returned.'}</div> : <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-400"><tr>{queryResult.columns.map((column) => <th key={column} className="px-5 py-3 font-semibold">{column}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{queryResult.rows.length === 0 ? <tr><td colSpan={queryResult.columns.length} className="px-5 py-8 text-center text-sm text-slate-500">The query returned no rows.</td></tr> : queryResult.rows.map((row, rowIndex) => <tr key={rowIndex}>{queryResult.columns.map((column) => <td key={column} className="px-5 py-3 font-mono text-xs text-slate-600">{row[column] == null ? 'NULL' : String(row[column])}</td>)}</tr>)}</tbody></table></div>}</div>}</div>
+  return <div className="sql-view space-y-6"><div><h2 className="font-heading text-2xl font-semibold">Raw SQL console</h2><p className="mt-1 text-sm text-slate-400">Execute SQL directly against the development database.</p><div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-xs leading-5 text-indigo-800">Supports row-returning statements such as SELECT, WITH, SHOW, EXPLAIN, VALUES, TABLE, and statements with RETURNING. INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, and other non-row statements are also supported. Comments, semicolons, and empty-query validation are handled by the backend.</div><div className="mt-3 flex flex-wrap items-center gap-2"><span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Business questions</span>{businessQuestionQueries.map((preset) => <button key={preset.id} onClick={() => setQuery(preset.sql)} className="btn-secondary text-xs">{preset.label}</button>)}</div></div><div className="sql-console overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-lg"><div className="flex items-center justify-between border-b border-slate-700 px-5 py-3"><div className="flex gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-red-400" /><span className="h-2.5 w-2.5 rounded-full bg-amber-400" /><span className="h-2.5 w-2.5 rounded-full bg-emerald-400" /></div><span className="font-mono text-[11px] text-slate-500">query.sql</span><span className="text-[11px] text-slate-500">Ctrl/Cmd + Enter to run</span></div><textarea value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={handleKeyDown} className="sql-editor h-48 w-full resize-none bg-slate-900 p-6 font-mono text-sm leading-7 text-slate-200 outline-none" spellCheck={false} /><div className="flex items-center justify-between border-t border-slate-700 px-5 py-3"><span className="font-mono text-xs text-slate-500">PostgreSQL · read/write enabled</span><button onClick={runQuery} disabled={queryRunning} className="rounded-lg bg-indigo-500 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60">{queryRunning ? 'Running...' : '▶ Run query'}</button></div></div>{queryResult && <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h3 className="text-sm font-semibold">Query results</h3><p className="mt-1 text-xs text-slate-400">{queryResult.rowCount} affected/returned rows · {queryResult.durationMs}ms</p></div><span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-600">Success</span></div><div className="border-b border-slate-100 bg-slate-50 px-5 py-3 font-mono text-xs text-slate-500">{executedQuery}</div>{queryResult.columns.length === 0 ? <div className="p-8 text-sm text-slate-500">{queryResult.rowCount === 0 ? 'The query executed successfully, but the database returned no rows.' : 'Statement executed successfully. No row columns were returned.'}</div> : <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-400"><tr>{queryResult.columns.map((column) => <th key={column} className="px-5 py-3 font-semibold">{column}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{queryResult.rows.length === 0 ? <tr><td colSpan={queryResult.columns.length} className="px-5 py-8 text-center text-sm text-slate-500">The query returned no rows.</td></tr> : queryResult.rows.map((row, rowIndex) => <tr key={rowIndex}>{queryResult.columns.map((column) => <td key={column} className="px-5 py-3 font-mono text-xs text-slate-600">{row[column] == null ? 'NULL' : String(row[column])}</td>)}</tr>)}</tbody></table></div>}</div>}</div>
 }
 
 export default App
