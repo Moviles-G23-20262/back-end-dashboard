@@ -4,7 +4,7 @@ import { createEntity, deleteEntity, listEntity, updateEntity } from './api/enti
 import { backendLabel } from './api/config'
 import { getRouteMetadata } from './api/metadata'
 import { executeRawSql } from './api/rawSql'
-import type { AnalyticsEvent, ChatRoom, Entity, EntityName, Exchange, Material, Message, Notification, RouteMetadata, SqlQueryResult, User, WishlistItem } from './types'
+import type { AnalyticsEvent, ChatRoom, Entity, EntityName, Exchange, Material, MeetingPoint, Message, Notification, RouteMetadata, SqlQueryResult, User, WishlistItem } from './types'
 import schemaSource from '../schema.prisma?raw'
 
 type Tab = 'overview' | 'data' | 'routes' | 'sql' | 'schema'
@@ -12,13 +12,14 @@ type BackendStatus = 'checking' | 'connected' | 'unavailable'
 type FormValues = Record<string, string>
 type Theme = 'light' | 'dark'
 
-const labels: Record<EntityName, string> = { User: 'Users', Material: 'Materials', ChatRoom: 'Chat rooms', Message: 'Messages', Exchange: 'Exchanges', WishlistItem: 'Wishlist items', Notification: 'Notifications', AnalyticsEvent: 'Analytics events' }
+const labels: Record<EntityName, string> = { User: 'Users', Material: 'Materials', ChatRoom: 'Chat rooms', Message: 'Messages', Exchange: 'Exchanges', MeetingPoint: 'Meeting points', WishlistItem: 'Wishlist items', Notification: 'Notifications', AnalyticsEvent: 'Analytics events' }
 const entityHeaders: Record<EntityName, string[]> = {
   User: ['id', 'email', 'fullName', 'major', 'faculty', 'rating', 'createdAt'],
   Material: ['id', 'title', 'courseCode', 'price', 'condition', 'status', 'category', 'sellerId', 'createdAt', 'updatedAt'],
   ChatRoom: ['id', 'materialId', 'buyerId', 'sellerId', 'createdAt'],
   Message: ['id', 'chatRoomId', 'senderId', 'content', 'isRead', 'createdAt'],
-  Exchange: ['id', 'materialId', 'buyerId', 'sellerId', 'price', 'completedAt'],
+  Exchange: ['id', 'materialId', 'buyerId', 'sellerId', 'price', 'completedAt', 'meetingPointId', 'lat', 'lng'],
+  MeetingPoint: ['id', 'name', 'detail', 'zoneType', 'isMonitored', 'lat', 'lng', 'createdAt'],
   WishlistItem: ['id', 'userId', 'materialId', 'createdAt'],
   Notification: ['id', 'userId', 'materialId', 'type', 'sentAt', 'openedAt'],
   AnalyticsEvent: ['id', 'userId', 'materialId', 'eventType', 'occurredAt'],
@@ -64,6 +65,17 @@ const formFields: Record<EntityName, Array<{ key: string; label: string; type?: 
     { key: 'sellerId', label: 'Seller ID', required: true },
     { key: 'price', label: 'Price', type: 'number', required: true },
     { key: 'completedAt', label: 'Completed at', type: 'datetime-local' },
+    { key: 'meetingPointId', label: 'Meeting Point ID' },
+    { key: 'lat', label: 'Latitude', type: 'number' },
+    { key: 'lng', label: 'Longitude', type: 'number' },
+  ],
+  MeetingPoint: [
+    { key: 'name', label: 'Name', required: true },
+    { key: 'detail', label: 'Detail' },
+    { key: 'zoneType', label: 'Zone Type', required: true },
+    { key: 'isMonitored', label: 'Is Monitored', type: 'checkbox' },
+    { key: 'lat', label: 'Latitude', type: 'number', required: true },
+    { key: 'lng', label: 'Longitude', type: 'number', required: true },
   ],
   WishlistItem: [
     { key: 'userId', label: 'User ID', required: true },
@@ -140,7 +152,7 @@ function App() {
   })
   const [tab, setTab] = useState<Tab>('overview')
   const [entity, setEntity] = useState<EntityName>('User')
-  const [records, setRecords] = useState<Record<EntityName, Entity[]>>({ User: [], Material: [], ChatRoom: [], Message: [], Exchange: [], WishlistItem: [], Notification: [], AnalyticsEvent: [] })
+  const [records, setRecords] = useState<Record<EntityName, Entity[]>>({ User: [], Material: [], ChatRoom: [], Message: [], Exchange: [], MeetingPoint: [], WishlistItem: [], Notification: [], AnalyticsEvent: [] })
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('SELECT * FROM "User" LIMIT 20;')
   const [queryResult, setQueryResult] = useState<SqlQueryResult | null>(null)
@@ -170,17 +182,18 @@ function App() {
     setError('')
     setBackendStatus('checking')
     try {
-      const [users, materials, chatRooms, messages, exchanges, wishlistItems, notifications, analyticsEvents] = await Promise.all([
+      const [users, materials, chatRooms, messages, exchanges, meetingPoints, wishlistItems, notifications, analyticsEvents] = await Promise.all([
         listEntity<User>('User'),
         listEntity<Material>('Material'),
         listEntity<ChatRoom>('ChatRoom'),
         listEntity<Message>('Message'),
         listEntity<Exchange>('Exchange'),
+        listEntity<MeetingPoint>('MeetingPoint'),
         listEntity<WishlistItem>('WishlistItem'),
         listEntity<Notification>('Notification'),
         listEntity<AnalyticsEvent>('AnalyticsEvent'),
       ])
-      setRecords({ User: users, Material: materials, ChatRoom: chatRooms, Message: messages, Exchange: exchanges, WishlistItem: wishlistItems, Notification: notifications, AnalyticsEvent: analyticsEvents })
+      setRecords({ User: users, Material: materials, ChatRoom: chatRooms, Message: messages, Exchange: exchanges, MeetingPoint: meetingPoints, WishlistItem: wishlistItems, Notification: notifications, AnalyticsEvent: analyticsEvents })
       setBackendStatus('connected')
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load backend records')
@@ -296,12 +309,14 @@ function EntityForm({ entity, values, editing, saving, records, onChange, onCanc
     category: ['BOOKS', 'CALCULATORS', 'LAB_EQUIPMENT', 'FURNITURE', 'OTHER'],
     type: ['SMART_MATCH', 'OTHER'],
     eventType: ['LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED'],
+    zoneType: ['LIBRARY', 'STUDENT_CENTER', 'BUILDING_LOBBY', 'PLAZA'],
     sellerId: records.User.map((record) => record.id),
     buyerId: records.User.map((record) => record.id),
     senderId: records.User.map((record) => record.id),
     userId: records.User.map((record) => record.id),
     materialId: records.Material.map((record) => record.id),
     chatRoomId: records.ChatRoom.map((record) => record.id),
+    meetingPointId: records.MeetingPoint.map((record) => record.id),
   }
   return <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/40 p-6"><form onSubmit={(event) => { event.preventDefault(); onSubmit() }} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-7 shadow-2xl"><div className="mb-6 flex items-start justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">{editing ? 'Update record' : 'Create record'}</p><h2 className="mt-1 font-heading text-2xl font-semibold">{labels[entity]}</h2></div><button type="button" onClick={onCancel} className="text-xl text-slate-400 hover:text-slate-700">×</button></div><div className="grid grid-cols-2 gap-4">{fields.map((field) => <label key={field.key} className={field.type === 'checkbox' ? 'col-span-2 flex items-center gap-3 text-sm font-medium' : 'block'}>{field.type === 'checkbox' ? <input type="checkbox" checked={values[field.key] === 'true'} onChange={(event) => onChange(field.key, String(event.target.checked))} /> : <><span className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-slate-500">{field.label}{editing && field.key === 'passwordHash' && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-400">Optional</span>}</span>{options[field.key] ? <select required={field.required} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-indigo-400"><option value="">Select {field.label.toLowerCase()}</option>{options[field.key].map((option) => <option key={option} value={option}>{option}</option>)}</select> : <input required={field.required && !(editing && field.key === 'passwordHash')} type={field.type ?? 'text'} placeholder={editing && field.key === 'passwordHash' && !values[field.key] ? 'Not returned by backend' : undefined} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400" />}</>}</label>)}</div><div className="mt-7 flex justify-end gap-3"><button type="button" onClick={onCancel} className="btn-secondary">Cancel</button><button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving...' : editing ? 'Save changes' : 'Create record'}</button></div></form></div>
 }
@@ -323,8 +338,8 @@ function SchemaView() {
 }
 
 const schemaKeywords = new Set(['generator', 'datasource', 'model', 'enum'])
-const schemaTypes = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Decimal', 'Json', 'User', 'Material', 'ChatRoom', 'Message', 'Exchange', 'WishlistItem', 'Notification', 'AnalyticsEvent'])
-const schemaConstants = new Set(['NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'AVAILABLE', 'RESERVED', 'SOLD', 'BOOKS', 'CALCULATORS', 'LAB_EQUIPMENT', 'FURNITURE', 'OTHER', 'SMART_MATCH', 'LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED'])
+const schemaTypes = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Decimal', 'Json', 'User', 'Material', 'ChatRoom', 'Message', 'Exchange', 'MeetingPoint', 'WishlistItem', 'Notification', 'AnalyticsEvent'])
+const schemaConstants = new Set(['NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'AVAILABLE', 'RESERVED', 'SOLD', 'BOOKS', 'CALCULATORS', 'LAB_EQUIPMENT', 'FURNITURE', 'OTHER', 'LIBRARY', 'STUDENT_CENTER', 'BUILDING_LOBBY', 'PLAZA', 'SMART_MATCH', 'LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED'])
 
 function renderSchemaLine(line: string): ReactNode {
   if (line.trim().startsWith('//')) return <span className="schema-comment">{line}</span>

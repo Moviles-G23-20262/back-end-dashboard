@@ -7,6 +7,7 @@ const entityPaths: Record<EntityName, string> = {
   ChatRoom: '/chatrooms',
   Message: '/messages',
   Exchange: '/exchanges',
+  MeetingPoint: '/meeting-points',
   WishlistItem: '/wishlist-items',
   Notification: '/notifications',
   AnalyticsEvent: '/analytics-events',
