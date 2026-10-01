@@ -98,8 +98,19 @@ export interface AnalyticsEvent {
   occurredAt: string
 }
 
-export type EntityName = 'User' | 'Material' | 'ChatRoom' | 'Message' | 'Exchange' | 'MeetingPoint' | 'WishlistItem' | 'Notification' | 'AnalyticsEvent'
-export type Entity = User | Material | ChatRoom | Message | Exchange | MeetingPoint | WishlistItem | Notification | AnalyticsEvent
+export interface Rating {
+  id: string
+  exchangeId: string
+  raterId: string
+  ratedId: string
+  stars: number
+  tags: string[]
+  review: string | null
+  createdAt: string
+}
+
+export type EntityName = 'User' | 'Material' | 'ChatRoom' | 'Message' | 'Exchange' | 'MeetingPoint' | 'WishlistItem' | 'Notification' | 'AnalyticsEvent' | 'Rating'
+export type Entity = User | Material | ChatRoom | Message | Exchange | MeetingPoint | WishlistItem | Notification | AnalyticsEvent | Rating
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 export interface RouteMetadata {

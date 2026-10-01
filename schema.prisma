@@ -29,6 +29,9 @@ model User {
   wishlistItems   WishlistItem[]
   notifications   Notification[]
   analyticsEvents AnalyticsEvent[]
+
+  ratingsGiven    Rating[] @relation("RatingRater")
+  ratingsReceived Rating[] @relation("RatingRated")
 }
 
 model Material {
@@ -107,6 +110,8 @@ model Exchange {
   seller       User          @relation("ExchangeSeller", fields: [sellerId], references: [id])
   meetingPoint MeetingPoint? @relation(fields: [meetingPointId], references: [id], onDelete: SetNull)
 
+  ratings      Rating[]
+
   //@@index([materialId])
   @@index([buyerId])
   @@index([sellerId])
@@ -173,6 +178,24 @@ model AnalyticsEvent {
   @@index([materialId])
   @@index([eventType])
   @@index([occurredAt])
+}
+
+model Rating {
+  id         String   @id @default(uuid()) @db.Uuid
+  exchangeId String   @db.Uuid
+  raterId    String   @db.Uuid
+  ratedId    String   @db.Uuid
+  stars      Int
+  tags       String[]
+  review     String?
+  createdAt  DateTime @default(now())
+
+  exchange Exchange @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
+  rater    User     @relation("RatingRater", fields: [raterId], references: [id])
+  rated    User     @relation("RatingRated", fields: [ratedId], references: [id])
+
+  @@unique([exchangeId, raterId])
+  @@index([ratedId])
 }
 
 enum MaterialCondition {

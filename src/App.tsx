@@ -4,7 +4,7 @@ import { createEntity, deleteEntity, listEntity, updateEntity } from './api/enti
 import { backendLabel } from './api/config'
 import { getRouteMetadata } from './api/metadata'
 import { executeRawSql } from './api/rawSql'
-import type { AnalyticsEvent, ChatRoom, Entity, EntityName, Exchange, Material, MeetingPoint, Message, Notification, RouteMetadata, SqlQueryResult, User, WishlistItem } from './types'
+import type { AnalyticsEvent, ChatRoom, Entity, EntityName, Exchange, Material, MeetingPoint, Message, Notification, Rating, RouteMetadata, SqlQueryResult, User, WishlistItem } from './types'
 import schemaSource from '../schema.prisma?raw'
 
 type Tab = 'overview' | 'data' | 'routes' | 'sql' | 'schema'
@@ -12,7 +12,7 @@ type BackendStatus = 'checking' | 'connected' | 'unavailable'
 type FormValues = Record<string, string>
 type Theme = 'light' | 'dark'
 
-const labels: Record<EntityName, string> = { User: 'Users', Material: 'Materials', ChatRoom: 'Chat rooms', Message: 'Messages', Exchange: 'Exchanges', MeetingPoint: 'Meeting points', WishlistItem: 'Wishlist items', Notification: 'Notifications', AnalyticsEvent: 'Analytics events' }
+const labels: Record<EntityName, string> = { User: 'Users', Material: 'Materials', ChatRoom: 'Chat rooms', Message: 'Messages', Exchange: 'Exchanges', MeetingPoint: 'Meeting points', WishlistItem: 'Wishlist items', Notification: 'Notifications', AnalyticsEvent: 'Analytics events', Rating: 'Ratings' }
 const entityHeaders: Record<EntityName, string[]> = {
   User: ['id', 'email', 'fullName', 'major', 'faculty', 'rating', 'createdAt'],
   Material: ['id', 'title', 'courseCode', 'price', 'condition', 'status', 'category', 'sellerId', 'createdAt', 'updatedAt'],
@@ -23,6 +23,7 @@ const entityHeaders: Record<EntityName, string[]> = {
   WishlistItem: ['id', 'userId', 'materialId', 'createdAt'],
   Notification: ['id', 'userId', 'materialId', 'type', 'sentAt', 'openedAt'],
   AnalyticsEvent: ['id', 'userId', 'materialId', 'eventType', 'occurredAt'],
+  Rating: ['id', 'exchangeId', 'raterId', 'ratedId', 'stars', 'tags', 'review', 'createdAt'],
 }
 const methodStyles: Record<string, string> = { GET: 'bg-blue-100 text-blue-700', POST: 'bg-emerald-100 text-emerald-700', PUT: 'bg-amber-100 text-amber-700', PATCH: 'bg-violet-100 text-violet-700', DELETE: 'bg-red-100 text-red-700' }
 
@@ -93,6 +94,14 @@ const formFields: Record<EntityName, Array<{ key: string; label: string; type?: 
     { key: 'eventType', label: 'Event type', required: true },
     { key: 'metadata', label: 'Metadata JSON' },
   ],
+  Rating: [
+    { key: 'exchangeId', label: 'Exchange ID', required: true },
+    { key: 'raterId', label: 'Rater ID', required: true },
+    { key: 'ratedId', label: 'Rated ID', required: true },
+    { key: 'stars', label: 'Stars (1-5)', type: 'number', required: true },
+    { key: 'tags', label: 'Tags (comma separated)' },
+    { key: 'review', label: 'Review' },
+  ],
 }
 
 function toFormValues(entity: EntityName, row: Entity): FormValues {
@@ -122,7 +131,7 @@ function toApiPayload(entity: EntityName, values: FormValues): Record<string, un
     if (field.type === 'checkbox') payload[field.key] = value === 'true'
     else if (field.key === 'price') payload[field.key] = value
     else if (field.type === 'number') payload[field.key] = value === '' ? undefined : Number(value)
-    else if (field.key === 'imageUrls') payload[field.key] = value.split(',').map((item) => item.trim()).filter(Boolean)
+    else if (field.key === 'imageUrls' || field.key === 'tags') payload[field.key] = value.split(',').map((item) => item.trim()).filter(Boolean)
     else if (field.type === 'datetime-local') payload[field.key] = value ? new Date(value).toISOString() : undefined
     else if (field.key === 'metadata') {
       try {
@@ -152,7 +161,7 @@ function App() {
   })
   const [tab, setTab] = useState<Tab>('overview')
   const [entity, setEntity] = useState<EntityName>('User')
-  const [records, setRecords] = useState<Record<EntityName, Entity[]>>({ User: [], Material: [], ChatRoom: [], Message: [], Exchange: [], MeetingPoint: [], WishlistItem: [], Notification: [], AnalyticsEvent: [] })
+  const [records, setRecords] = useState<Record<EntityName, Entity[]>>({ User: [], Material: [], ChatRoom: [], Message: [], Exchange: [], MeetingPoint: [], WishlistItem: [], Notification: [], AnalyticsEvent: [], Rating: [] })
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('SELECT * FROM "User" LIMIT 20;')
   const [queryResult, setQueryResult] = useState<SqlQueryResult | null>(null)
@@ -183,7 +192,7 @@ function App() {
     setError('')
     setBackendStatus('checking')
     try {
-      const [users, materials, chatRooms, messages, exchanges, meetingPoints, wishlistItems, notifications, analyticsEvents] = await Promise.all([
+      const [users, materials, chatRooms, messages, exchanges, meetingPoints, wishlistItems, notifications, analyticsEvents, ratings] = await Promise.all([
         listEntity<User>('User'),
         listEntity<Material>('Material'),
         listEntity<ChatRoom>('ChatRoom'),
@@ -193,8 +202,9 @@ function App() {
         listEntity<WishlistItem>('WishlistItem'),
         listEntity<Notification>('Notification'),
         listEntity<AnalyticsEvent>('AnalyticsEvent'),
+        listEntity<Rating>('Rating'),
       ])
-      setRecords({ User: users, Material: materials, ChatRoom: chatRooms, Message: messages, Exchange: exchanges, MeetingPoint: meetingPoints, WishlistItem: wishlistItems, Notification: notifications, AnalyticsEvent: analyticsEvents })
+      setRecords({ User: users, Material: materials, ChatRoom: chatRooms, Message: messages, Exchange: exchanges, MeetingPoint: meetingPoints, WishlistItem: wishlistItems, Notification: notifications, AnalyticsEvent: analyticsEvents, Rating: ratings })
       setBackendStatus('connected')
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load backend records')
@@ -319,13 +329,16 @@ function EntityForm({ entity, values, editing, saving, records, onChange, onCanc
     materialId: records.Material.map((record) => record.id),
     chatRoomId: records.ChatRoom.map((record) => record.id),
     meetingPointId: records.MeetingPoint.map((record) => record.id),
+    exchangeId: records.Exchange.map((record) => record.id),
+    raterId: records.User.map((record) => record.id),
+    ratedId: records.User.map((record) => record.id),
   }
   return <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/40 p-6"><form onSubmit={(event) => { event.preventDefault(); onSubmit() }} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-7 shadow-2xl"><div className="mb-6 flex items-start justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">{editing ? 'Update record' : 'Create record'}</p><h2 className="mt-1 font-heading text-2xl font-semibold">{labels[entity]}</h2></div><button type="button" onClick={onCancel} className="text-xl text-slate-400 hover:text-slate-700">×</button></div><div className="grid grid-cols-2 gap-4">{fields.map((field) => <label key={field.key} className={field.type === 'checkbox' ? 'col-span-2 flex items-center gap-3 text-sm font-medium' : 'block'}>{field.type === 'checkbox' ? <input type="checkbox" checked={values[field.key] === 'true'} onChange={(event) => onChange(field.key, String(event.target.checked))} /> : <><span className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-slate-500">{field.label}{editing && field.key === 'passwordHash' && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-400">Optional</span>}</span>{options[field.key] ? <select required={field.required} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-indigo-400"><option value="">Select {field.label.toLowerCase()}</option>{options[field.key].map((option) => <option key={option} value={option}>{option}</option>)}</select> : <input required={field.required && !(editing && field.key === 'passwordHash')} type={field.type ?? 'text'} placeholder={editing && field.key === 'passwordHash' && !values[field.key] ? 'Not returned by backend' : undefined} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400" />}</>}</label>)}</div><div className="mt-7 flex justify-end gap-3"><button type="button" onClick={onCancel} className="btn-secondary">Cancel</button><button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving...' : editing ? 'Save changes' : 'Create record'}</button></div></form></div>
 }
 
 function DatabaseView({ entity, setEntity, rows, onRefresh, onAdd, editRecord, deleteRecord, deletingId }: { entity: EntityName; setEntity: (entity: EntityName) => void; rows: Entity[]; onRefresh: () => void; onAdd: () => void; editRecord: (id: string) => void; deleteRecord: (id: string) => void; deletingId: string | null }) {
   const headers = entityHeaders[entity]
-  return <div className="space-y-6"><div className="flex items-end justify-between"><div><h2 className="font-heading text-2xl font-semibold">Tables</h2><p className="mt-1 text-sm text-slate-400">Manage records from your Prisma schema</p></div><div className="flex gap-3"><button onClick={onRefresh} className="btn-secondary">↻ Refresh</button><button onClick={onAdd} className="btn-primary">＋ Add {entity}</button></div></div><div className="flex gap-2 border-b border-slate-200">{(Object.keys(labels) as EntityName[]).map((name) => <button key={name} onClick={() => setEntity(name)} className={`border-b-2 px-4 py-3 text-sm font-semibold ${entity === name ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-400'}`}>{labels[name]}{entity === name && <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px]">{rows.length}</span>}</button>)}</div><div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center gap-2 border-b border-slate-100 px-5 py-3 text-xs font-medium text-slate-400"><span aria-hidden="true" className="text-sm text-indigo-500">↔</span><span>Scroll horizontally to view all fields</span></div><div className="table-scroll overflow-x-auto"><table className="min-w-max text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-400"><tr>{headers.map((header) => <th key={header} className="whitespace-nowrap px-5 py-4 font-semibold">{header.replace(/([A-Z])/g, ' $1')}</th>)}<th className="theme-table-sticky sticky right-0 z-10 whitespace-nowrap px-5 py-4 text-right font-semibold shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.5)]">Actions</th></tr></thead><tbody className="divide-y divide-slate-100">{rows.map((row) => <tr key={row.id} className="hover:bg-slate-50">{headers.map((header) => { const value = row[header as keyof Entity]; return <td key={header} title={String(value ?? '')} className="whitespace-nowrap px-5 py-4 text-slate-600">{header === 'status' || header === 'condition' ? <span className="rounded-md bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">{String(value)}</span> : header === 'rating' ? `★ ${String(value)}` : formatTableValue(header, value)}</td> })}<td className="theme-table-sticky sticky right-0 z-10 whitespace-nowrap px-5 py-4 text-right shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.5)]"><div className="flex justify-end gap-2"><button type="button" aria-label={`Edit ${entity} record`} onClick={() => editRecord(row.id)} className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 transition hover:bg-indigo-100">✎ Edit</button><button type="button" aria-label={`Delete ${entity} record`} disabled={deletingId === row.id} onClick={() => void deleteRecord(row.id)} className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50">{deletingId === row.id ? 'Deleting...' : '🗑 Delete'}</button></div></td></tr>)}</tbody></table></div>{rows.length === 0 && <div className="flex flex-col items-center justify-center gap-4 p-12 text-center"><p className="text-sm text-slate-400">No records exist yet for {labels[entity]}.</p><button type="button" onClick={onAdd} className="btn-primary">＋ Add first {entity}</button></div>}<div className="flex justify-between border-t border-slate-100 px-5 py-4 text-xs text-slate-400"><span>Showing {rows.length} records</span><span>Schema: public · {entity}</span></div></div></div>
+  return <div className="space-y-6"><div className="flex items-end justify-between"><div><h2 className="font-heading text-2xl font-semibold">Tables</h2><p className="mt-1 text-sm text-slate-400">Manage records from your Prisma schema</p></div><div className="flex gap-3"><button onClick={onRefresh} className="btn-secondary">↻ Refresh</button><button onClick={onAdd} className="btn-primary">＋ Add {entity}</button></div></div><div className="flex gap-2 border-b border-slate-200">{(Object.keys(labels) as EntityName[]).map((name) => <button key={name} onClick={() => setEntity(name)} className={`border-b-2 px-4 py-3 text-sm font-semibold ${entity === name ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-400'}`}>{labels[name]}{entity === name && <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px]">{rows.length}</span>}</button>)}</div><div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center gap-2 border-b border-slate-100 px-5 py-3 text-xs font-medium text-slate-400"><span aria-hidden="true" className="text-sm text-indigo-500">↔</span><span>Scroll horizontally to view all fields</span></div><div className="table-scroll overflow-x-auto"><table className="min-w-max text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-400"><tr>{headers.map((header) => <th key={header} className="whitespace-nowrap px-5 py-4 font-semibold">{header.replace(/([A-Z])/g, ' $1')}</th>)}<th className="theme-table-sticky sticky right-0 z-10 whitespace-nowrap px-5 py-4 text-right font-semibold shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.5)]">Actions</th></tr></thead><tbody className="divide-y divide-slate-100">{rows.map((row) => <tr key={row.id} className="hover:bg-slate-50">{headers.map((header) => { const value = row[header as keyof Entity]; return <td key={header} title={String(value ?? '')} className="whitespace-nowrap px-5 py-4 text-slate-600">{header === 'status' || header === 'condition' ? <span className="rounded-md bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">{String(value)}</span> : header === 'rating' || header === 'stars' ? `★ ${String(value)}` : formatTableValue(header, value)}</td> })}<td className="theme-table-sticky sticky right-0 z-10 whitespace-nowrap px-5 py-4 text-right shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.5)]"><div className="flex justify-end gap-2"><button type="button" aria-label={`Edit ${entity} record`} onClick={() => editRecord(row.id)} className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 transition hover:bg-indigo-100">✎ Edit</button><button type="button" aria-label={`Delete ${entity} record`} disabled={deletingId === row.id} onClick={() => void deleteRecord(row.id)} className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50">{deletingId === row.id ? 'Deleting...' : '🗑 Delete'}</button></div></td></tr>)}</tbody></table></div>{rows.length === 0 && <div className="flex flex-col items-center justify-center gap-4 p-12 text-center"><p className="text-sm text-slate-400">No records exist yet for {labels[entity]}.</p><button type="button" onClick={onAdd} className="btn-primary">＋ Add first {entity}</button></div>}<div className="flex justify-between border-t border-slate-100 px-5 py-4 text-xs text-slate-400"><span>Showing {rows.length} records</span><span>Schema: public · {entity}</span></div></div></div>
 }
 
 function RoutesView({ routes, error }: { routes: RouteMetadata[]; error: string }) {
@@ -340,7 +353,7 @@ function SchemaView() {
 }
 
 const schemaKeywords = new Set(['generator', 'datasource', 'model', 'enum'])
-const schemaTypes = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Decimal', 'Json', 'User', 'Material', 'ChatRoom', 'Message', 'Exchange', 'MeetingPoint', 'WishlistItem', 'Notification', 'AnalyticsEvent'])
+const schemaTypes = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Decimal', 'Json', 'User', 'Material', 'ChatRoom', 'Message', 'Exchange', 'MeetingPoint', 'WishlistItem', 'Notification', 'AnalyticsEvent', 'Rating'])
 const schemaConstants = new Set(['NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'AVAILABLE', 'RESERVED', 'SOLD', 'BOOKS', 'CALCULATORS', 'LAB_EQUIPMENT', 'FURNITURE', 'OTHER', 'LIBRARY', 'STUDENT_CENTER', 'BUILDING_LOBBY', 'PLAZA', 'SMART_MATCH', 'LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED'])
 
 function renderSchemaLine(line: string): ReactNode {

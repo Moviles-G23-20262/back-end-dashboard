@@ -11,6 +11,7 @@ const entityPaths: Record<EntityName, string> = {
   WishlistItem: '/wishlist-items',
   Notification: '/notifications',
   AnalyticsEvent: '/analytics-events',
+  Rating: '/ratings',
 }
 
 
