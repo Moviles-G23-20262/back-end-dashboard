@@ -8,7 +8,6 @@ export type MeetingZoneType = 'LIBRARY' | 'STUDENT_CENTER' | 'BUILDING_LOBBY' | 
 export interface User {
   id: string
   email: string
-  passwordHash: string
   fullName: string
   major: string
   faculty: string | null
