@@ -6,7 +6,7 @@ import { AdminKeyGate } from './AdminKeyGate'
 import { clearAdminKey, getAdminKey, onAdminKeyRejected, setAdminKey } from './api/adminKey'
 import { getRouteMetadata } from './api/metadata'
 import { executeRawSql } from './api/rawSql'
-import type { AnalyticsEvent, ChatRoom, Entity, EntityName, Exchange, Material, MeetingPoint, Message, Notification, Rating, RouteMetadata, SqlQueryResult, User, WishlistItem } from './types'
+import type { AnalyticsEvent, ChatRoom, Entity, EntityName, Exchange, Material, MeetingPoint, MeetingProposal, Message, Notification, Rating, RouteMetadata, ScheduleBlock, SqlQueryResult, User, WishlistItem } from './types'
 import schemaSource from '../schema.prisma?raw'
 
 type Tab = 'overview' | 'data' | 'routes' | 'sql' | 'schema'
@@ -14,14 +14,16 @@ type BackendStatus = 'checking' | 'connected' | 'unavailable'
 type FormValues = Record<string, string>
 type Theme = 'light' | 'dark'
 
-const labels: Record<EntityName, string> = { User: 'Users', Material: 'Materials', ChatRoom: 'Chat rooms', Message: 'Messages', Exchange: 'Exchanges', MeetingPoint: 'Meeting points', WishlistItem: 'Wishlist items', Notification: 'Notifications', AnalyticsEvent: 'Analytics events', Rating: 'Ratings' }
+const labels: Record<EntityName, string> = { User: 'Users', Material: 'Materials', ChatRoom: 'Chat rooms', Message: 'Messages', Exchange: 'Exchanges', MeetingPoint: 'Meeting points', MeetingProposal: 'Meeting proposals', ScheduleBlock: 'Schedules', WishlistItem: 'Wishlist items', Notification: 'Notifications', AnalyticsEvent: 'Analytics events', Rating: 'Ratings' }
 const entityHeaders: Record<EntityName, string[]> = {
   User: ['id', 'email', 'fullName', 'major', 'faculty', 'rating', 'createdAt'],
   Material: ['id', 'title', 'courseCode', 'price', 'condition', 'status', 'category', 'sellerId', 'createdAt', 'updatedAt'],
   ChatRoom: ['id', 'materialId', 'buyerId', 'sellerId', 'createdAt'],
-  Message: ['id', 'chatRoomId', 'senderId', 'content', 'isRead', 'createdAt'],
-  Exchange: ['id', 'materialId', 'buyerId', 'sellerId', 'price', 'completedAt', 'meetingPointId', 'lat', 'lng'],
+  Message: ['id', 'chatRoomId', 'senderId', 'type', 'content', 'meetingProposalId', 'isRead', 'createdAt'],
+  Exchange: ['id', 'orderNumber', 'status', 'materialId', 'buyerId', 'sellerId', 'price', 'createdAt', 'meetingPointId', 'meetingStartsAt', 'meetingEndsAt', 'completedAt', 'cancelledAt', 'receivedCondition', 'lat', 'lng'],
   MeetingPoint: ['id', 'name', 'detail', 'zoneType', 'isMonitored', 'lat', 'lng', 'createdAt'],
+  MeetingProposal: ['id', 'status', 'chatRoomId', 'proposerId', 'meetingPointId', 'startsAt', 'endsAt', 'respondedAt', 'createdAt'],
+  ScheduleBlock: ['id', 'userId', 'dayOfWeek', 'startMinute', 'endMinute', 'label', 'createdAt'],
   WishlistItem: ['id', 'userId', 'materialId', 'createdAt'],
   Notification: ['id', 'userId', 'materialId', 'type', 'sentAt', 'openedAt'],
   AnalyticsEvent: ['id', 'userId', 'materialId', 'eventType', 'occurredAt'],
@@ -66,7 +68,7 @@ const formFields: Record<EntityName, Array<{ key: string; label: string; type?: 
     { key: 'buyerId', label: 'Buyer ID', required: true },
     { key: 'sellerId', label: 'Seller ID', required: true },
     { key: 'price', label: 'Price', type: 'number', required: true },
-    { key: 'completedAt', label: 'Completed at', type: 'datetime-local' },
+    { key: 'status', label: 'Status' },
     { key: 'meetingPointId', label: 'Meeting Point ID' },
     { key: 'lat', label: 'Latitude', type: 'number' },
     { key: 'lng', label: 'Longitude', type: 'number' },
@@ -78,6 +80,21 @@ const formFields: Record<EntityName, Array<{ key: string; label: string; type?: 
     { key: 'isMonitored', label: 'Is Monitored', type: 'checkbox' },
     { key: 'lat', label: 'Latitude', type: 'number', required: true },
     { key: 'lng', label: 'Longitude', type: 'number', required: true },
+  ],
+  MeetingProposal: [
+    { key: 'chatRoomId', label: 'Chat room ID', required: true },
+    { key: 'proposerId', label: 'Proposer ID', required: true },
+    { key: 'meetingPointId', label: 'Meeting Point ID', required: true },
+    { key: 'startsAt', label: 'Starts at', type: 'datetime-local', required: true },
+    { key: 'endsAt', label: 'Ends at', type: 'datetime-local', required: true },
+    { key: 'status', label: 'Status' },
+  ],
+  ScheduleBlock: [
+    { key: 'userId', label: 'User ID', required: true },
+    { key: 'dayOfWeek', label: 'Day (1 = Mon ... 7 = Sun)', type: 'number', required: true },
+    { key: 'startMinute', label: 'Start (minutes after midnight)', type: 'number', required: true },
+    { key: 'endMinute', label: 'End (minutes after midnight)', type: 'number', required: true },
+    { key: 'label', label: 'Class' },
   ],
   WishlistItem: [
     { key: 'userId', label: 'User ID', required: true },
@@ -130,6 +147,7 @@ function toApiPayload(entity: EntityName, values: FormValues): Record<string, un
     const value = values[field.key] ?? ''
     if (entity === 'User' && field.key === 'password' && value === '') continue
     if (field.type === 'checkbox') payload[field.key] = value === 'true'
+    else if (field.key === 'status' && value === '') continue
     else if (field.key === 'price') payload[field.key] = value
     else if (field.type === 'number') payload[field.key] = value === '' ? undefined : Number(value)
     else if (field.key === 'imageUrls' || field.key === 'tags') payload[field.key] = value.split(',').map((item) => item.trim()).filter(Boolean)
@@ -151,6 +169,10 @@ function formatTableValue(header: string, value: unknown): string {
   const text = String(value)
   if (header === 'id') return `${text.slice(0, 8)}…`
   if (header === 'price') return `$${Number(value).toFixed(2)}`
+  if (header.endsWith('Minute')) return `${String(Math.floor(Number(value) / 60)).padStart(2, '0')}:${String(Number(value) % 60).padStart(2, '0')}`
+  if (header === 'dayOfWeek') return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][Number(value) - 1] ?? text
+  if (header === 'orderNumber') return `CSW-${text}`
+  if (['startsAt', 'endsAt', 'meetingStartsAt', 'meetingEndsAt'].includes(header)) return new Date(text).toLocaleString()
   if (header.endsWith('At')) return new Date(text).toLocaleDateString()
   return text.length > 160 ? `${text.slice(0, 157)}…` : text
 }
@@ -164,7 +186,7 @@ function App() {
   const [keyRejected, setKeyRejected] = useState(false)
   const [tab, setTab] = useState<Tab>('overview')
   const [entity, setEntity] = useState<EntityName>('User')
-  const [records, setRecords] = useState<Record<EntityName, Entity[]>>({ User: [], Material: [], ChatRoom: [], Message: [], Exchange: [], MeetingPoint: [], WishlistItem: [], Notification: [], AnalyticsEvent: [], Rating: [] })
+  const [records, setRecords] = useState<Record<EntityName, Entity[]>>({ User: [], Material: [], ChatRoom: [], Message: [], Exchange: [], MeetingPoint: [], MeetingProposal: [], ScheduleBlock: [], WishlistItem: [], Notification: [], AnalyticsEvent: [], Rating: [] })
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('SELECT * FROM "User" LIMIT 20;')
   const [queryResult, setQueryResult] = useState<SqlQueryResult | null>(null)
@@ -195,19 +217,21 @@ function App() {
     setError('')
     setBackendStatus('checking')
     try {
-      const [users, materials, chatRooms, messages, exchanges, meetingPoints, wishlistItems, notifications, analyticsEvents, ratings] = await Promise.all([
+      const [users, materials, chatRooms, messages, exchanges, meetingPoints, meetingProposals, scheduleBlocks, wishlistItems, notifications, analyticsEvents, ratings] = await Promise.all([
         listEntity<User>('User'),
         listEntity<Material>('Material'),
         listEntity<ChatRoom>('ChatRoom'),
         listEntity<Message>('Message'),
         listEntity<Exchange>('Exchange'),
         listEntity<MeetingPoint>('MeetingPoint'),
+        listEntity<MeetingProposal>('MeetingProposal'),
+        listEntity<ScheduleBlock>('ScheduleBlock'),
         listEntity<WishlistItem>('WishlistItem'),
         listEntity<Notification>('Notification'),
         listEntity<AnalyticsEvent>('AnalyticsEvent'),
         listEntity<Rating>('Rating'),
       ])
-      setRecords({ User: users, Material: materials, ChatRoom: chatRooms, Message: messages, Exchange: exchanges, MeetingPoint: meetingPoints, WishlistItem: wishlistItems, Notification: notifications, AnalyticsEvent: analyticsEvents, Rating: ratings })
+      setRecords({ User: users, Material: materials, ChatRoom: chatRooms, Message: messages, Exchange: exchanges, MeetingPoint: meetingPoints, MeetingProposal: meetingProposals, ScheduleBlock: scheduleBlocks, WishlistItem: wishlistItems, Notification: notifications, AnalyticsEvent: analyticsEvents, Rating: ratings })
       setBackendStatus('connected')
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load backend records')
@@ -324,9 +348,9 @@ function EntityForm({ entity, values, editing, saving, records, onChange, onCanc
   const fields = formFields[entity]
   const options: Record<string, string[]> = {
     condition: ['NEW', 'LIKE_NEW', 'GOOD', 'FAIR'],
-    status: ['AVAILABLE', 'RESERVED', 'SOLD'],
+    status: entity === 'Exchange' ? ['PENDING', 'COMPLETED', 'CANCELLED'] : entity === 'MeetingProposal' ? ['PENDING', 'ACCEPTED', 'DECLINED', 'CANCELLED'] : ['AVAILABLE', 'RESERVED', 'SOLD'],
     category: ['BOOKS', 'CALCULATORS', 'LAB_EQUIPMENT', 'FURNITURE', 'OTHER'],
-    type: ['SMART_MATCH', 'OTHER'],
+    type: ['SMART_MATCH', 'ORDER_PLACED', 'OTHER'],
     eventType: ['LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED'],
     zoneType: ['LIBRARY', 'STUDENT_CENTER', 'BUILDING_LOBBY', 'PLAZA'],
     sellerId: records.User.map((record) => record.id),
@@ -338,6 +362,7 @@ function EntityForm({ entity, values, editing, saving, records, onChange, onCanc
     meetingPointId: records.MeetingPoint.map((record) => record.id),
     exchangeId: records.Exchange.map((record) => record.id),
     raterId: records.User.map((record) => record.id),
+    proposerId: records.User.map((record) => record.id),
     ratedId: records.User.map((record) => record.id),
   }
   return <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/40 p-6"><form onSubmit={(event) => { event.preventDefault(); onSubmit() }} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-7 shadow-2xl"><div className="mb-6 flex items-start justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">{editing ? 'Update record' : 'Create record'}</p><h2 className="mt-1 font-heading text-2xl font-semibold">{labels[entity]}</h2></div><button type="button" onClick={onCancel} className="text-xl text-slate-400 hover:text-slate-700">×</button></div><div className="grid grid-cols-2 gap-4">{fields.map((field) => <label key={field.key} className={field.type === 'checkbox' ? 'col-span-2 flex items-center gap-3 text-sm font-medium' : 'block'}>{field.type === 'checkbox' ? <input type="checkbox" checked={values[field.key] === 'true'} onChange={(event) => onChange(field.key, String(event.target.checked))} /> : <><span className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-slate-500">{field.label}{editing && field.key === 'password' && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-400">Optional</span>}</span>{options[field.key] ? <select required={field.required} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-indigo-400"><option value="">Select {field.label.toLowerCase()}</option>{options[field.key].map((option) => <option key={option} value={option}>{option}</option>)}</select> : <input required={field.required && !(editing && field.key === 'password')} type={field.type ?? 'text'} placeholder={editing && field.key === 'password' && !values[field.key] ? 'Leave blank to keep current password' : undefined} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400" />}</>}</label>)}</div><div className="mt-7 flex justify-end gap-3"><button type="button" onClick={onCancel} className="btn-secondary">Cancel</button><button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving...' : editing ? 'Save changes' : 'Create record'}</button></div></form></div>
@@ -360,8 +385,8 @@ function SchemaView() {
 }
 
 const schemaKeywords = new Set(['generator', 'datasource', 'model', 'enum'])
-const schemaTypes = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Decimal', 'Json', 'User', 'Material', 'ChatRoom', 'Message', 'Exchange', 'MeetingPoint', 'WishlistItem', 'Notification', 'AnalyticsEvent', 'Rating'])
-const schemaConstants = new Set(['NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'AVAILABLE', 'RESERVED', 'SOLD', 'BOOKS', 'CALCULATORS', 'LAB_EQUIPMENT', 'FURNITURE', 'OTHER', 'LIBRARY', 'STUDENT_CENTER', 'BUILDING_LOBBY', 'PLAZA', 'SMART_MATCH', 'LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED'])
+const schemaTypes = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Decimal', 'Json', 'User', 'Material', 'ChatRoom', 'Message', 'Exchange', 'MeetingPoint', 'MeetingProposal', 'ScheduleBlock', 'WishlistItem', 'Notification', 'AnalyticsEvent', 'Rating'])
+const schemaConstants = new Set(['NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'AVAILABLE', 'RESERVED', 'SOLD', 'BOOKS', 'CALCULATORS', 'LAB_EQUIPMENT', 'FURNITURE', 'OTHER', 'LIBRARY', 'STUDENT_CENTER', 'BUILDING_LOBBY', 'PLAZA', 'PENDING', 'COMPLETED', 'CANCELLED', 'ACCEPTED', 'DECLINED', 'TEXT', 'MEETING', 'ORDER_PLACED', 'SMART_MATCH', 'LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED'])
 
 function renderSchemaLine(line: string): ReactNode {
   if (line.trim().startsWith('//')) return <span className="schema-comment">{line}</span>

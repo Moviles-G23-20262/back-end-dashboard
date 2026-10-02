@@ -9,6 +9,8 @@ const entityPaths: Record<EntityName, string> = {
   Message: '/messages',
   Exchange: '/exchanges',
   MeetingPoint: '/meeting-points',
+  MeetingProposal: '/meeting-proposals',
+  ScheduleBlock: '/schedule-blocks',
   WishlistItem: '/wishlist-items',
   Notification: '/notifications',
   AnalyticsEvent: '/analytics-events',
