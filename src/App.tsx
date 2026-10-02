@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { createEntity, deleteEntity, listEntity, updateEntity } from './api/entities'
 import { backendLabel } from './api/config'
+import { AdminKeyGate } from './AdminKeyGate'
+import { clearAdminKey, getAdminKey, onAdminKeyRejected, setAdminKey } from './api/adminKey'
 import { getRouteMetadata } from './api/metadata'
 import { executeRawSql } from './api/rawSql'
 import type { AnalyticsEvent, ChatRoom, Entity, EntityName, Exchange, Material, MeetingPoint, Message, Notification, Rating, RouteMetadata, SqlQueryResult, User, WishlistItem } from './types'
@@ -158,6 +160,8 @@ function App() {
     const savedTheme = window.localStorage.getItem('dashboard-theme')
     return savedTheme === 'dark' ? 'dark' : 'light'
   })
+  const [adminKey, setAdminKeyState] = useState<string | null>(getAdminKey)
+  const [keyRejected, setKeyRejected] = useState(false)
   const [tab, setTab] = useState<Tab>('overview')
   const [entity, setEntity] = useState<EntityName>('User')
   const [records, setRecords] = useState<Record<EntityName, Entity[]>>({ User: [], Material: [], ChatRoom: [], Message: [], Exchange: [], MeetingPoint: [], WishlistItem: [], Notification: [], AnalyticsEvent: [], Rating: [] })
@@ -213,7 +217,8 @@ function App() {
     }
   }
 
-  useEffect(() => { void loadRecords() }, [])
+  useEffect(() => onAdminKeyRejected(() => { setKeyRejected(true); setAdminKeyState(null) }), [])
+  useEffect(() => { if (adminKey) void loadRecords() }, [adminKey])
   useEffect(() => {
     void getRouteMetadata()
       .then(setRoutes)
@@ -293,12 +298,15 @@ function App() {
     }
   }
 
+  if (!adminKey) return <AdminKeyGate rejected={keyRejected} onSubmit={(key) => { setAdminKey(key); setKeyRejected(false); setAdminKeyState(key) }} />
+
   return <div className="dashboard-shell min-h-screen bg-[#f5f6fa] font-body text-slate-900">
     <aside className="dashboard-sidebar fixed inset-y-0 left-0 z-10 flex w-[250px] flex-col border-r border-slate-200 bg-white px-4 py-6">
       <div className="mb-10 flex items-center gap-3 px-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-xl text-white shadow-lg shadow-indigo-200">◈</div><div><div className="font-heading text-lg font-semibold">Back End</div><div className="text-xs text-slate-400">Developer console</div></div></div>
       <div className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Workspace</div>
       <nav className="space-y-1">{([['overview', '⌂', 'Overview'], ['data', '▦', 'Database'], ['routes', '↔', 'API routes'], ['sql', '⌘', 'SQL console'], ['schema', '{}', 'Schema']] as const).map(([key, icon, label]) => <button key={key} onClick={() => setTab(key)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium transition ${tab === key ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}><span className="w-5 text-center text-[16px]">{icon}</span>{label}{key === 'routes' && <span className="ml-auto rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{routes.length || '—'}</span>}</button>)}</nav>
       <div className="status-panel mt-auto rounded-2xl bg-slate-900 p-4 text-white"><div className="mb-2 flex items-center justify-between"><span className="text-xs font-semibold">Backend status</span><span className={`h-2 w-2 rounded-full ${backendStatus === 'connected' ? 'bg-emerald-400' : backendStatus === 'checking' ? 'bg-amber-400' : 'bg-red-400'}`} /></div><div className="break-all font-mono text-[11px] text-slate-400">{backendLabel} · {backendStatus}</div><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-700"><div className={`h-full rounded-full transition-all ${backendStatus === 'connected' ? 'w-full bg-emerald-400' : backendStatus === 'checking' ? 'w-1/2 bg-amber-400' : 'w-1/4 bg-red-400'}`} /></div><div className="mt-1 flex justify-between text-[10px] text-slate-500"><span>{backendStatus === 'connected' ? 'API reachable' : backendStatus === 'checking' ? 'Checking API' : 'Request failed'}</span><span>{backendStatus === 'connected' ? 'healthy' : 'attention needed'}</span></div></div>
+      <button onClick={() => { clearAdminKey(); setKeyRejected(false); setAdminKeyState(null) }} className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-500 transition hover:bg-slate-50">Lock dashboard</button>
     </aside>
     <main className="ml-[250px] min-h-screen"><header className="dashboard-header flex h-[76px] items-center justify-between border-b border-slate-200 bg-white px-10"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-indigo-600">Developer admin</p><h1 className="font-heading text-2xl font-semibold">{tab === 'overview' ? 'Good morning, team' : tab === 'data' ? 'Database explorer' : tab === 'routes' ? 'API route inspector' : tab === 'schema' ? 'Prisma schema' : 'Raw SQL console'}</h1></div><div className="flex items-center gap-4"><input aria-label="Search records" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search records..." className="theme-input w-56 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" /><button type="button" className="theme-toggle" aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>{theme === 'light' ? '☾ Dark' : '☀ Light'}</button><div className="h-9 w-9 rounded-full bg-indigo-100 pt-2 text-center text-xs font-bold text-indigo-700">DT</div></div></header><div className="p-10">{notice && <div className="fixed bottom-10 right-10 z-50 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700 shadow-2xl animate-bounce-in"><span>✓</span>{notice}</div>}{loading && tab !== 'schema' ? <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-400">Loading records from {backendLabel}...</div> : tab === 'overview' ? <Overview records={records} routeCount={routes.length} setTab={setTab} /> : tab === 'data' ? <DatabaseView entity={entity} setEntity={setEntity} rows={rows} onRefresh={() => void loadRecords()} onAdd={openCreateForm} editRecord={openEditForm} deleteRecord={deleteRecord} deletingId={deletingId} /> : tab === 'routes' ? <RoutesView routes={routes} error={routesError} /> : tab === 'schema' ? <SchemaView /> : <SqlView query={query} setQuery={setQuery} queryResult={queryResult} queryRunning={queryRunning} executedQuery={executedQuery} runQuery={() => void runQuery()} />}{formOpen && <EntityForm entity={entity} values={formValues} editing={Boolean(editingId)} saving={saving} records={records} onChange={(key, value) => setFormValues((current) => ({ ...current, [key]: value }))} onCancel={() => setFormOpen(false)} onSubmit={() => void saveRecord()} />}</div>{error && <div role="alert" className="global-error-alert flex items-center justify-between gap-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button type="button" aria-label="Close error message" onClick={() => setError('')} className="shrink-0 text-lg font-semibold leading-none text-red-500 hover:text-red-700">×</button></div>}</main>
   </div>
