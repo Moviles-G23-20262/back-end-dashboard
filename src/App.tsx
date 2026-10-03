@@ -351,7 +351,7 @@ function EntityForm({ entity, values, editing, saving, records, onChange, onCanc
     status: entity === 'Exchange' ? ['PENDING', 'COMPLETED', 'CANCELLED'] : entity === 'MeetingProposal' ? ['PENDING', 'ACCEPTED', 'DECLINED', 'CANCELLED'] : ['AVAILABLE', 'RESERVED', 'SOLD'],
     category: ['BOOKS', 'CALCULATORS', 'LAB_EQUIPMENT', 'FURNITURE', 'OTHER'],
     type: ['SMART_MATCH', 'ORDER_PLACED', 'OTHER'],
-    eventType: ['LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED'],
+    eventType: ['LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED', 'SMART_MATCH_SHOWN', 'SMART_MATCH_OPENED', 'SMART_MATCH_RESERVED', 'EXCHANGE_CONFIRMED'],
     zoneType: ['LIBRARY', 'STUDENT_CENTER', 'BUILDING_LOBBY', 'PLAZA'],
     sellerId: records.User.map((record) => record.id),
     buyerId: records.User.map((record) => record.id),
@@ -386,7 +386,7 @@ function SchemaView() {
 
 const schemaKeywords = new Set(['generator', 'datasource', 'model', 'enum'])
 const schemaTypes = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Decimal', 'Json', 'User', 'Material', 'ChatRoom', 'Message', 'Exchange', 'MeetingPoint', 'MeetingProposal', 'ScheduleBlock', 'WishlistItem', 'Notification', 'AnalyticsEvent', 'Rating'])
-const schemaConstants = new Set(['NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'AVAILABLE', 'RESERVED', 'SOLD', 'BOOKS', 'CALCULATORS', 'LAB_EQUIPMENT', 'FURNITURE', 'OTHER', 'LIBRARY', 'STUDENT_CENTER', 'BUILDING_LOBBY', 'PLAZA', 'PENDING', 'COMPLETED', 'CANCELLED', 'ACCEPTED', 'DECLINED', 'TEXT', 'MEETING', 'ORDER_PLACED', 'SMART_MATCH', 'LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED'])
+const schemaConstants = new Set(['NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'AVAILABLE', 'RESERVED', 'SOLD', 'BOOKS', 'CALCULATORS', 'LAB_EQUIPMENT', 'FURNITURE', 'OTHER', 'LIBRARY', 'STUDENT_CENTER', 'BUILDING_LOBBY', 'PLAZA', 'PENDING', 'COMPLETED', 'CANCELLED', 'ACCEPTED', 'DECLINED', 'TEXT', 'MEETING', 'ORDER_PLACED', 'SMART_MATCH', 'LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED', 'SMART_MATCH_SHOWN', 'SMART_MATCH_OPENED', 'SMART_MATCH_RESERVED', 'EXCHANGE_CONFIRMED'])
 
 function renderSchemaLine(line: string): ReactNode {
   if (line.trim().startsWith('//')) return <span className="schema-comment">{line}</span>
