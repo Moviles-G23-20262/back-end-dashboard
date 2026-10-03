@@ -173,3 +173,15 @@ export interface PaginatedResponse<T> {
   pageSize: number
   total: number
 }
+
+export interface MeetingPointHourCount {
+  meetingPoint: string
+  localHour: number
+  exchanges: number
+}
+
+export interface MeetingPointHeatmap {
+  hours: number[]
+  points: Array<{ name: string; total: number; counts: Record<number, number> }>
+  maxCount: number
+}
