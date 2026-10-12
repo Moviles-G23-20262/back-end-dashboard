@@ -1,14 +1,16 @@
 export type MaterialCondition = 'NEW' | 'LIKE_NEW' | 'GOOD' | 'FAIR'
 export type MaterialStatus = 'AVAILABLE' | 'RESERVED' | 'SOLD'
 export type MaterialCategory = 'BOOKS' | 'CALCULATORS' | 'LAB_EQUIPMENT' | 'FURNITURE' | 'OTHER'
-export type NotificationType = 'SMART_MATCH' | 'OTHER'
-export type AnalyticsEventType = 'LISTING_VIEW' | 'SEARCH' | 'CONTACT_SELLER' | 'WISHLIST_ADD' | 'WISHLIST_REMOVE' | 'NOTIFICATION_SENT' | 'NOTIFICATION_OPENED'
+export type NotificationType = 'SMART_MATCH' | 'ORDER_PLACED' | 'OTHER'
+export type AnalyticsEventType = 'LISTING_VIEW' | 'SEARCH' | 'CONTACT_SELLER' | 'WISHLIST_ADD' | 'WISHLIST_REMOVE' | 'NOTIFICATION_SENT' | 'NOTIFICATION_OPENED' | 'SMART_MATCH_SHOWN' | 'SMART_MATCH_OPENED' | 'SMART_MATCH_RESERVED' | 'EXCHANGE_CONFIRMED'
 export type MeetingZoneType = 'LIBRARY' | 'STUDENT_CENTER' | 'BUILDING_LOBBY' | 'PLAZA'
+export type ExchangeStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED'
+export type MessageType = 'TEXT' | 'MEETING'
+export type MeetingProposalStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'CANCELLED'
 
 export interface User {
   id: string
   email: string
-  passwordHash: string
   fullName: string
   major: string
   faculty: string | null
@@ -46,20 +48,53 @@ export interface Message {
   chatRoomId: string
   senderId: string
   content: string
+  type: MessageType
+  meetingProposalId: string | null
   isRead: boolean
   createdAt: string
 }
 
 export interface Exchange {
   id: string
+  orderNumber: number
   materialId: string
   buyerId: string
   sellerId: string
   price: number
-  completedAt: string
+  status: ExchangeStatus
+  createdAt: string
+  completedAt: string | null
+  cancelledAt: string | null
+  receivedCondition: MaterialCondition | null
   meetingPointId: string | null
+  meetingStartsAt: string | null
+  meetingEndsAt: string | null
   lat: number | null
   lng: number | null
+}
+
+export interface MeetingProposal {
+  id: string
+  chatRoomId: string
+  proposerId: string
+  meetingPointId: string
+  startsAt: string
+  endsAt: string
+  status: MeetingProposalStatus
+  respondedAt: string | null
+  createdAt: string
+}
+
+export interface ScheduleBlock {
+  id: string
+  userId: string
+  /** 1 = Monday ... 7 = Sunday */
+  dayOfWeek: number
+  /** Minutes after midnight, campus time */
+  startMinute: number
+  endMinute: number
+  label: string | null
+  createdAt: string
 }
 
 export interface MeetingPoint {
@@ -98,8 +133,19 @@ export interface AnalyticsEvent {
   occurredAt: string
 }
 
-export type EntityName = 'User' | 'Material' | 'ChatRoom' | 'Message' | 'Exchange' | 'MeetingPoint' | 'WishlistItem' | 'Notification' | 'AnalyticsEvent'
-export type Entity = User | Material | ChatRoom | Message | Exchange | MeetingPoint | WishlistItem | Notification | AnalyticsEvent
+export interface Rating {
+  id: string
+  exchangeId: string
+  raterId: string
+  ratedId: string
+  stars: number
+  tags: string[]
+  review: string | null
+  createdAt: string
+}
+
+export type EntityName = 'User' | 'Material' | 'ChatRoom' | 'Message' | 'Exchange' | 'MeetingPoint' | 'MeetingProposal' | 'ScheduleBlock' | 'WishlistItem' | 'Notification' | 'AnalyticsEvent' | 'Rating'
+export type Entity = User | Material | ChatRoom | Message | Exchange | MeetingPoint | MeetingProposal | ScheduleBlock | WishlistItem | Notification | AnalyticsEvent | Rating
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 export interface RouteMetadata {
@@ -137,4 +183,16 @@ export interface FunnelStat {
 export interface BuyerJourneyFunnel {
   views_before_contact: FunnelStat
   views_before_exchange: FunnelStat
+}
+
+export interface MeetingPointHourCount {
+  meetingPoint: string
+  localHour: number
+  exchanges: number
+}
+
+export interface MeetingPointHeatmap {
+  hours: number[]
+  points: Array<{ name: string; total: number; counts: Record<number, number> }>
+  maxCount: number
 }

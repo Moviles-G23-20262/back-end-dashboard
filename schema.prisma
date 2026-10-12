@@ -29,6 +29,12 @@ model User {
   wishlistItems   WishlistItem[]
   notifications   Notification[]
   analyticsEvents AnalyticsEvent[]
+
+  ratingsGiven    Rating[] @relation("RatingRater")
+  ratingsReceived Rating[] @relation("RatingRated")
+
+  meetingProposals MeetingProposal[]
+  scheduleBlocks   ScheduleBlock[]
 }
 
 model Material {
@@ -50,7 +56,7 @@ model Material {
   updatedAt DateTime @updatedAt
 
   category        MaterialCategory
-  exchange        Exchange?
+  exchanges       Exchange[]
   wishlistItems   WishlistItem[]
   notifications   Notification[]
   analyticsEvents AnalyticsEvent[]
@@ -71,43 +77,63 @@ model ChatRoom {
   seller     User      @relation("ChatRoomSeller", fields: [sellerId], references: [id])
   messages   Message[]
 
+  meetingProposals MeetingProposal[]
+
   @@index([materialId])
   @@index([buyerId])
   @@index([sellerId])
 }
 
 model Message {
-  id         String   @id @default(uuid()) @db.Uuid
-  chatRoomId String   @db.Uuid
-  senderId   String   @db.Uuid
+  id         String      @id @default(uuid()) @db.Uuid
+  chatRoomId String      @db.Uuid
+  senderId   String      @db.Uuid
   content    String
-  isRead     Boolean  @default(false)
-  createdAt  DateTime @default(now())
-  chatRoom   ChatRoom @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
-  sender     User     @relation(fields: [senderId], references: [id])
+  type       MessageType @default(TEXT)
+  isRead     Boolean     @default(false)
+  createdAt  DateTime    @default(now())
+  chatRoom   ChatRoom    @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+  sender     User        @relation(fields: [senderId], references: [id])
+
+  // Set when `type` is MEETING: the chat shows the proposal as a card.
+  meetingProposalId String?          @db.Uuid
+  meetingProposal   MeetingProposal? @relation(fields: [meetingProposalId], references: [id], onDelete: SetNull)
 
   @@index([chatRoomId, createdAt])
   @@index([senderId])
 }
 
+// An order: placed by the buyer (PENDING), then COMPLETED after they meet, or CANCELLED.
 model Exchange {
-  id          String   @id @default(uuid()) @db.Uuid
-  materialId  String   @unique @db.Uuid
-  buyerId     String   @db.Uuid
-  sellerId    String   @db.Uuid
-  price       Decimal  @db.Decimal(10, 2)
-  completedAt DateTime @default(now())
+  id          String         @id @default(uuid()) @db.Uuid
+  orderNumber Int            @unique @default(autoincrement())
+  materialId  String         @db.Uuid
+  buyerId     String         @db.Uuid
+  sellerId    String         @db.Uuid
+  price       Decimal        @db.Decimal(10, 2)
+  status      ExchangeStatus @default(PENDING)
+  createdAt   DateTime       @default(now())
+  completedAt DateTime?
+  cancelledAt DateTime?
 
-  meetingPointId String? @db.Uuid
-  lat            Float?
-  lng            Float?
+  // What the buyer says they received, checked at the meetup.
+  receivedCondition MaterialCondition?
+
+  meetingPointId  String?   @db.Uuid
+  meetingStartsAt DateTime?
+  meetingEndsAt   DateTime?
+  lat             Float?
+  lng             Float?
 
   material     Material      @relation(fields: [materialId], references: [id])
   buyer        User          @relation("ExchangeBuyer", fields: [buyerId], references: [id])
   seller       User          @relation("ExchangeSeller", fields: [sellerId], references: [id])
   meetingPoint MeetingPoint? @relation(fields: [meetingPointId], references: [id], onDelete: SetNull)
 
-  //@@index([materialId])
+  ratings Rating[]
+
+  @@index([materialId])
+  @@index([status])
   @@index([buyerId])
   @@index([sellerId])
   @@index([completedAt])
@@ -124,7 +150,44 @@ model MeetingPoint {
   lng         Float
   createdAt   DateTime        @default(now())
 
-  exchanges Exchange[]
+  exchanges        Exchange[]
+  meetingProposals MeetingProposal[]
+}
+
+// A time and safe zone one side of a chat proposes; the other side accepts or declines it.
+model MeetingProposal {
+  id             String                @id @default(uuid()) @db.Uuid
+  chatRoomId     String                @db.Uuid
+  proposerId     String                @db.Uuid
+  meetingPointId String                @db.Uuid
+  startsAt       DateTime
+  endsAt         DateTime
+  status         MeetingProposalStatus @default(PENDING)
+  respondedAt    DateTime?
+  createdAt      DateTime              @default(now())
+
+  chatRoom     ChatRoom     @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+  proposer     User         @relation(fields: [proposerId], references: [id])
+  meetingPoint MeetingPoint @relation(fields: [meetingPointId], references: [id])
+  messages     Message[]
+
+  @@index([chatRoomId, createdAt])
+  @@index([meetingPointId])
+}
+
+// One recurring class in a user's week, in campus local time (America/Bogota).
+model ScheduleBlock {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  dayOfWeek   Int // 1 = Monday … 7 = Sunday
+  startMinute Int // minutes after midnight
+  endMinute   Int
+  label       String?
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, dayOfWeek])
 }
 
 model WishlistItem {
@@ -175,6 +238,24 @@ model AnalyticsEvent {
   @@index([occurredAt])
 }
 
+model Rating {
+  id         String   @id @default(uuid()) @db.Uuid
+  exchangeId String   @db.Uuid
+  raterId    String   @db.Uuid
+  ratedId    String   @db.Uuid
+  stars      Int
+  tags       String[]
+  review     String?
+  createdAt  DateTime @default(now())
+
+  exchange Exchange @relation(fields: [exchangeId], references: [id], onDelete: Cascade)
+  rater    User     @relation("RatingRater", fields: [raterId], references: [id])
+  rated    User     @relation("RatingRated", fields: [ratedId], references: [id])
+
+  @@unique([exchangeId, raterId])
+  @@index([ratedId])
+}
+
 enum MaterialCondition {
   NEW
   LIKE_NEW
@@ -196,6 +277,24 @@ enum MaterialCategory {
   OTHER
 }
 
+enum ExchangeStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum MessageType {
+  TEXT
+  MEETING
+}
+
+enum MeetingProposalStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+}
+
 enum MeetingZoneType {
   LIBRARY
   STUDENT_CENTER
@@ -205,6 +304,7 @@ enum MeetingZoneType {
 
 enum NotificationType {
   SMART_MATCH
+  ORDER_PLACED
   OTHER
 }
 
@@ -216,4 +316,8 @@ enum AnalyticsEventType {
   WISHLIST_REMOVE
   NOTIFICATION_SENT
   NOTIFICATION_OPENED
+  SMART_MATCH_SHOWN
+  SMART_MATCH_OPENED
+  SMART_MATCH_RESERVED
+  EXCHANGE_CONFIRMED
 }

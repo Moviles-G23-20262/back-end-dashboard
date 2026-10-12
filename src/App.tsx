@@ -2,39 +2,44 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { createEntity, deleteEntity, listEntity, updateEntity } from './api/entities'
 import { backendLabel } from './api/config'
+import { AdminKeyGate } from './AdminKeyGate'
+import { clearAdminKey, getAdminKey, onAdminKeyRejected, setAdminKey } from './api/adminKey'
 import { getRouteMetadata } from './api/metadata'
 import { executeRawSql } from './api/rawSql'
 import { getBuyerJourneyFunnel } from './api/analytics'
-import type { AnalyticsEvent, BuyerJourneyFunnel, ChatRoom, Entity, EntityName, Exchange, Material, MeetingPoint, Message, Notification, RouteMetadata, SqlQueryResult, User, WishlistItem } from './types'
+import { MEETING_POINT_USAGE_SQL, fetchMeetingPointUsage, toMeetingPointHeatmap } from './api/businessQuestions'
+import type { AnalyticsEvent, BuyerJourneyFunnel, ChatRoom, Entity, EntityName, Exchange, Material, MeetingPoint, MeetingPointHeatmap, MeetingProposal, Message, Notification, Rating, RouteMetadata, ScheduleBlock, SqlQueryResult, User, WishlistItem } from './types'
 import schemaSource from '../schema.prisma?raw'
 
-type Tab = 'overview' | 'data' | 'routes' | 'sql' | 'schema'
+type Tab = 'overview' | 'data' | 'routes' | 'sql' | 'schema' | 'bq12'
 type BackendStatus = 'checking' | 'connected' | 'unavailable'
 type FormValues = Record<string, string>
 type Theme = 'light' | 'dark'
 
-const labels: Record<EntityName, string> = { User: 'Users', Material: 'Materials', ChatRoom: 'Chat rooms', Message: 'Messages', Exchange: 'Exchanges', MeetingPoint: 'Meeting points', WishlistItem: 'Wishlist items', Notification: 'Notifications', AnalyticsEvent: 'Analytics events' }
+const labels: Record<EntityName, string> = { User: 'Users', Material: 'Materials', ChatRoom: 'Chat rooms', Message: 'Messages', Exchange: 'Exchanges', MeetingPoint: 'Meeting points', MeetingProposal: 'Meeting proposals', ScheduleBlock: 'Schedules', WishlistItem: 'Wishlist items', Notification: 'Notifications', AnalyticsEvent: 'Analytics events', Rating: 'Ratings' }
 const entityHeaders: Record<EntityName, string[]> = {
   User: ['id', 'email', 'fullName', 'major', 'faculty', 'rating', 'createdAt'],
   Material: ['id', 'title', 'courseCode', 'price', 'condition', 'status', 'category', 'sellerId', 'createdAt', 'updatedAt'],
   ChatRoom: ['id', 'materialId', 'buyerId', 'sellerId', 'createdAt'],
-  Message: ['id', 'chatRoomId', 'senderId', 'content', 'isRead', 'createdAt'],
-  Exchange: ['id', 'materialId', 'buyerId', 'sellerId', 'price', 'completedAt', 'meetingPointId', 'lat', 'lng'],
+  Message: ['id', 'chatRoomId', 'senderId', 'type', 'content', 'meetingProposalId', 'isRead', 'createdAt'],
+  Exchange: ['id', 'orderNumber', 'status', 'materialId', 'buyerId', 'sellerId', 'price', 'createdAt', 'meetingPointId', 'meetingStartsAt', 'meetingEndsAt', 'completedAt', 'cancelledAt', 'receivedCondition', 'lat', 'lng'],
   MeetingPoint: ['id', 'name', 'detail', 'zoneType', 'isMonitored', 'lat', 'lng', 'createdAt'],
+  MeetingProposal: ['id', 'status', 'chatRoomId', 'proposerId', 'meetingPointId', 'startsAt', 'endsAt', 'respondedAt', 'createdAt'],
+  ScheduleBlock: ['id', 'userId', 'dayOfWeek', 'startMinute', 'endMinute', 'label', 'createdAt'],
   WishlistItem: ['id', 'userId', 'materialId', 'createdAt'],
   Notification: ['id', 'userId', 'materialId', 'type', 'sentAt', 'openedAt'],
   AnalyticsEvent: ['id', 'userId', 'materialId', 'eventType', 'occurredAt'],
+  Rating: ['id', 'exchangeId', 'raterId', 'ratedId', 'stars', 'tags', 'review', 'createdAt'],
 }
 const methodStyles: Record<string, string> = { GET: 'bg-blue-100 text-blue-700', POST: 'bg-emerald-100 text-emerald-700', PUT: 'bg-amber-100 text-amber-700', PATCH: 'bg-violet-100 text-violet-700', DELETE: 'bg-red-100 text-red-700' }
 
 const formFields: Record<EntityName, Array<{ key: string; label: string; type?: string; required?: boolean }>> = {
   User: [
     { key: 'email', label: 'Email', type: 'email', required: true },
-    { key: 'passwordHash', label: 'Password hash', required: true },
+    { key: 'password', label: 'Password', required: true },
     { key: 'fullName', label: 'Full name', required: true },
     { key: 'major', label: 'Major', required: true },
     { key: 'faculty', label: 'Faculty' },
-    { key: 'rating', label: 'Rating', type: 'number' },
   ],
   Material: [
     { key: 'title', label: 'Title', required: true },
@@ -65,7 +70,7 @@ const formFields: Record<EntityName, Array<{ key: string; label: string; type?: 
     { key: 'buyerId', label: 'Buyer ID', required: true },
     { key: 'sellerId', label: 'Seller ID', required: true },
     { key: 'price', label: 'Price', type: 'number', required: true },
-    { key: 'completedAt', label: 'Completed at', type: 'datetime-local' },
+    { key: 'status', label: 'Status' },
     { key: 'meetingPointId', label: 'Meeting Point ID' },
     { key: 'lat', label: 'Latitude', type: 'number' },
     { key: 'lng', label: 'Longitude', type: 'number' },
@@ -77,6 +82,21 @@ const formFields: Record<EntityName, Array<{ key: string; label: string; type?: 
     { key: 'isMonitored', label: 'Is Monitored', type: 'checkbox' },
     { key: 'lat', label: 'Latitude', type: 'number', required: true },
     { key: 'lng', label: 'Longitude', type: 'number', required: true },
+  ],
+  MeetingProposal: [
+    { key: 'chatRoomId', label: 'Chat room ID', required: true },
+    { key: 'proposerId', label: 'Proposer ID', required: true },
+    { key: 'meetingPointId', label: 'Meeting Point ID', required: true },
+    { key: 'startsAt', label: 'Starts at', type: 'datetime-local', required: true },
+    { key: 'endsAt', label: 'Ends at', type: 'datetime-local', required: true },
+    { key: 'status', label: 'Status' },
+  ],
+  ScheduleBlock: [
+    { key: 'userId', label: 'User ID', required: true },
+    { key: 'dayOfWeek', label: 'Day (1 = Mon ... 7 = Sun)', type: 'number', required: true },
+    { key: 'startMinute', label: 'Start (minutes after midnight)', type: 'number', required: true },
+    { key: 'endMinute', label: 'End (minutes after midnight)', type: 'number', required: true },
+    { key: 'label', label: 'Class' },
   ],
   WishlistItem: [
     { key: 'userId', label: 'User ID', required: true },
@@ -93,6 +113,14 @@ const formFields: Record<EntityName, Array<{ key: string; label: string; type?: 
     { key: 'materialId', label: 'Material ID' },
     { key: 'eventType', label: 'Event type', required: true },
     { key: 'metadata', label: 'Metadata JSON' },
+  ],
+  Rating: [
+    { key: 'exchangeId', label: 'Exchange ID', required: true },
+    { key: 'raterId', label: 'Rater ID', required: true },
+    { key: 'ratedId', label: 'Rated ID', required: true },
+    { key: 'stars', label: 'Stars (1-5)', type: 'number', required: true },
+    { key: 'tags', label: 'Tags (comma separated)' },
+    { key: 'review', label: 'Review' },
   ],
 }
 
@@ -119,11 +147,12 @@ function toApiPayload(entity: EntityName, values: FormValues): Record<string, un
   const payload: Record<string, unknown> = {}
   for (const field of formFields[entity]) {
     const value = values[field.key] ?? ''
-    if (entity === 'User' && field.key === 'passwordHash' && value === '') continue
+    if (entity === 'User' && field.key === 'password' && value === '') continue
     if (field.type === 'checkbox') payload[field.key] = value === 'true'
+    else if (field.key === 'status' && value === '') continue
     else if (field.key === 'price') payload[field.key] = value
     else if (field.type === 'number') payload[field.key] = value === '' ? undefined : Number(value)
-    else if (field.key === 'imageUrls') payload[field.key] = value.split(',').map((item) => item.trim()).filter(Boolean)
+    else if (field.key === 'imageUrls' || field.key === 'tags') payload[field.key] = value.split(',').map((item) => item.trim()).filter(Boolean)
     else if (field.type === 'datetime-local') payload[field.key] = value ? new Date(value).toISOString() : undefined
     else if (field.key === 'metadata') {
       try {
@@ -142,6 +171,10 @@ function formatTableValue(header: string, value: unknown): string {
   const text = String(value)
   if (header === 'id') return `${text.slice(0, 8)}…`
   if (header === 'price') return `$${Number(value).toFixed(2)}`
+  if (header.endsWith('Minute')) return `${String(Math.floor(Number(value) / 60)).padStart(2, '0')}:${String(Number(value) % 60).padStart(2, '0')}`
+  if (header === 'dayOfWeek') return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][Number(value) - 1] ?? text
+  if (header === 'orderNumber') return `CSW-${text}`
+  if (['startsAt', 'endsAt', 'meetingStartsAt', 'meetingEndsAt'].includes(header)) return new Date(text).toLocaleString()
   if (header.endsWith('At')) return new Date(text).toLocaleDateString()
   return text.length > 160 ? `${text.slice(0, 157)}…` : text
 }
@@ -151,9 +184,11 @@ function App() {
     const savedTheme = window.localStorage.getItem('dashboard-theme')
     return savedTheme === 'dark' ? 'dark' : 'light'
   })
+  const [adminKey, setAdminKeyState] = useState<string | null>(getAdminKey)
+  const [keyRejected, setKeyRejected] = useState(false)
   const [tab, setTab] = useState<Tab>('overview')
   const [entity, setEntity] = useState<EntityName>('User')
-  const [records, setRecords] = useState<Record<EntityName, Entity[]>>({ User: [], Material: [], ChatRoom: [], Message: [], Exchange: [], MeetingPoint: [], WishlistItem: [], Notification: [], AnalyticsEvent: [] })
+  const [records, setRecords] = useState<Record<EntityName, Entity[]>>({ User: [], Material: [], ChatRoom: [], Message: [], Exchange: [], MeetingPoint: [], MeetingProposal: [], ScheduleBlock: [], WishlistItem: [], Notification: [], AnalyticsEvent: [], Rating: [] })
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('SELECT * FROM "User" LIMIT 20;')
   const [queryResult, setQueryResult] = useState<SqlQueryResult | null>(null)
@@ -184,18 +219,21 @@ function App() {
     setError('')
     setBackendStatus('checking')
     try {
-      const [users, materials, chatRooms, messages, exchanges, meetingPoints, wishlistItems, notifications, analyticsEvents] = await Promise.all([
+      const [users, materials, chatRooms, messages, exchanges, meetingPoints, meetingProposals, scheduleBlocks, wishlistItems, notifications, analyticsEvents, ratings] = await Promise.all([
         listEntity<User>('User'),
         listEntity<Material>('Material'),
         listEntity<ChatRoom>('ChatRoom'),
         listEntity<Message>('Message'),
         listEntity<Exchange>('Exchange'),
         listEntity<MeetingPoint>('MeetingPoint'),
+        listEntity<MeetingProposal>('MeetingProposal'),
+        listEntity<ScheduleBlock>('ScheduleBlock'),
         listEntity<WishlistItem>('WishlistItem'),
         listEntity<Notification>('Notification'),
         listEntity<AnalyticsEvent>('AnalyticsEvent'),
+        listEntity<Rating>('Rating'),
       ])
-      setRecords({ User: users, Material: materials, ChatRoom: chatRooms, Message: messages, Exchange: exchanges, MeetingPoint: meetingPoints, WishlistItem: wishlistItems, Notification: notifications, AnalyticsEvent: analyticsEvents })
+      setRecords({ User: users, Material: materials, ChatRoom: chatRooms, Message: messages, Exchange: exchanges, MeetingPoint: meetingPoints, MeetingProposal: meetingProposals, ScheduleBlock: scheduleBlocks, WishlistItem: wishlistItems, Notification: notifications, AnalyticsEvent: analyticsEvents, Rating: ratings })
       setBackendStatus('connected')
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load backend records')
@@ -205,7 +243,8 @@ function App() {
     }
   }
 
-  useEffect(() => { void loadRecords() }, [])
+  useEffect(() => onAdminKeyRejected(() => { setKeyRejected(true); setAdminKeyState(null) }), [])
+  useEffect(() => { if (adminKey) void loadRecords() }, [adminKey])
   useEffect(() => {
     void getRouteMetadata()
       .then(setRoutes)
@@ -285,14 +324,17 @@ function App() {
     }
   }
 
+  if (!adminKey) return <AdminKeyGate rejected={keyRejected} onSubmit={(key) => { setAdminKey(key); setKeyRejected(false); setAdminKeyState(key) }} />
+
   return <div className="dashboard-shell min-h-screen bg-[#f5f6fa] font-body text-slate-900">
     <aside className="dashboard-sidebar fixed inset-y-0 left-0 z-10 flex w-[250px] flex-col border-r border-slate-200 bg-white px-4 py-6">
       <div className="mb-10 flex items-center gap-3 px-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-xl text-white shadow-lg shadow-indigo-200">◈</div><div><div className="font-heading text-lg font-semibold">Back End</div><div className="text-xs text-slate-400">Developer console</div></div></div>
       <div className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Workspace</div>
-      <nav className="space-y-1">{([['overview', '⌂', 'Overview'], ['data', '▦', 'Database'], ['routes', '↔', 'API routes'], ['sql', '⌘', 'SQL console'], ['schema', '{}', 'Schema']] as const).map(([key, icon, label]) => <button key={key} onClick={() => setTab(key)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium transition ${tab === key ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}><span className="w-5 text-center text-[16px]">{icon}</span>{label}{key === 'routes' && <span className="ml-auto rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{routes.length || '—'}</span>}</button>)}</nav>
+      <nav className="space-y-1">{([['overview', '⌂', 'Overview'], ['data', '▦', 'Database'], ['routes', '↔', 'API routes'], ['sql', '⌘', 'SQL console'], ['schema', '{}', 'Schema'], ['bq12', '◫', 'BQ12 heat map']] as const).map(([key, icon, label]) => <button key={key} onClick={() => setTab(key)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium transition ${tab === key ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}><span className="w-5 text-center text-[16px]">{icon}</span>{label}{key === 'routes' && <span className="ml-auto rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{routes.length || '—'}</span>}</button>)}</nav>
       <div className="status-panel mt-auto rounded-2xl bg-slate-900 p-4 text-white"><div className="mb-2 flex items-center justify-between"><span className="text-xs font-semibold">Backend status</span><span className={`h-2 w-2 rounded-full ${backendStatus === 'connected' ? 'bg-emerald-400' : backendStatus === 'checking' ? 'bg-amber-400' : 'bg-red-400'}`} /></div><div className="break-all font-mono text-[11px] text-slate-400">{backendLabel} · {backendStatus}</div><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-700"><div className={`h-full rounded-full transition-all ${backendStatus === 'connected' ? 'w-full bg-emerald-400' : backendStatus === 'checking' ? 'w-1/2 bg-amber-400' : 'w-1/4 bg-red-400'}`} /></div><div className="mt-1 flex justify-between text-[10px] text-slate-500"><span>{backendStatus === 'connected' ? 'API reachable' : backendStatus === 'checking' ? 'Checking API' : 'Request failed'}</span><span>{backendStatus === 'connected' ? 'healthy' : 'attention needed'}</span></div></div>
+      <button onClick={() => { clearAdminKey(); setKeyRejected(false); setAdminKeyState(null) }} className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-500 transition hover:bg-slate-50">Lock dashboard</button>
     </aside>
-    <main className="ml-[250px] min-h-screen"><header className="dashboard-header flex h-[76px] items-center justify-between border-b border-slate-200 bg-white px-10"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-indigo-600">Developer admin</p><h1 className="font-heading text-2xl font-semibold">{tab === 'overview' ? 'Good morning, team' : tab === 'data' ? 'Database explorer' : tab === 'routes' ? 'API route inspector' : tab === 'schema' ? 'Prisma schema' : 'Raw SQL console'}</h1></div><div className="flex items-center gap-4"><input aria-label="Search records" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search records..." className="theme-input w-56 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" /><button type="button" className="theme-toggle" aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>{theme === 'light' ? '☾ Dark' : '☀ Light'}</button><div className="h-9 w-9 rounded-full bg-indigo-100 pt-2 text-center text-xs font-bold text-indigo-700">DT</div></div></header><div className="p-10">{notice && <div className="fixed bottom-10 right-10 z-50 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700 shadow-2xl animate-bounce-in"><span>✓</span>{notice}</div>}{loading && tab !== 'schema' ? <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-400">Loading records from {backendLabel}...</div> : tab === 'overview' ? <Overview records={records} routeCount={routes.length} setTab={setTab} /> : tab === 'data' ? <DatabaseView entity={entity} setEntity={setEntity} rows={rows} onRefresh={() => void loadRecords()} onAdd={openCreateForm} editRecord={openEditForm} deleteRecord={deleteRecord} deletingId={deletingId} /> : tab === 'routes' ? <RoutesView routes={routes} error={routesError} /> : tab === 'schema' ? <SchemaView /> : <SqlView query={query} setQuery={setQuery} queryResult={queryResult} queryRunning={queryRunning} executedQuery={executedQuery} runQuery={() => void runQuery()} />}{formOpen && <EntityForm entity={entity} values={formValues} editing={Boolean(editingId)} saving={saving} records={records} onChange={(key, value) => setFormValues((current) => ({ ...current, [key]: value }))} onCancel={() => setFormOpen(false)} onSubmit={() => void saveRecord()} />}</div>{error && <div role="alert" className="global-error-alert flex items-center justify-between gap-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button type="button" aria-label="Close error message" onClick={() => setError('')} className="shrink-0 text-lg font-semibold leading-none text-red-500 hover:text-red-700">×</button></div>}</main>
+    <main className="ml-[250px] min-h-screen"><header className="dashboard-header flex h-[76px] items-center justify-between border-b border-slate-200 bg-white px-10"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-indigo-600">Developer admin</p><h1 className="font-heading text-2xl font-semibold">{tab === 'overview' ? 'Good morning, team' : tab === 'data' ? 'Database explorer' : tab === 'routes' ? 'API route inspector' : tab === 'schema' ? 'Prisma schema' : tab === 'bq12' ? 'BQ12 · Meeting spots by hour' : 'Raw SQL console'}</h1></div><div className="flex items-center gap-4"><input aria-label="Search records" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search records..." className="theme-input w-56 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" /><button type="button" className="theme-toggle" aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>{theme === 'light' ? '☾ Dark' : '☀ Light'}</button><div className="h-9 w-9 rounded-full bg-indigo-100 pt-2 text-center text-xs font-bold text-indigo-700">DT</div></div></header><div className="p-10">{notice && <div className="fixed bottom-10 right-10 z-50 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700 shadow-2xl animate-bounce-in"><span>✓</span>{notice}</div>}{loading && tab !== 'schema' ? <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-400">Loading records from {backendLabel}...</div> : tab === 'overview' ? <Overview records={records} routeCount={routes.length} setTab={setTab} /> : tab === 'data' ? <DatabaseView entity={entity} setEntity={setEntity} rows={rows} onRefresh={() => void loadRecords()} onAdd={openCreateForm} editRecord={openEditForm} deleteRecord={deleteRecord} deletingId={deletingId} /> : tab === 'routes' ? <RoutesView routes={routes} error={routesError} /> : tab === 'schema' ? <SchemaView /> : tab === 'bq12' ? <MeetingPointHeatmapView /> : <SqlView query={query} setQuery={setQuery} queryResult={queryResult} queryRunning={queryRunning} executedQuery={executedQuery} runQuery={() => void runQuery()} />}{formOpen && <EntityForm entity={entity} values={formValues} editing={Boolean(editingId)} saving={saving} records={records} onChange={(key, value) => setFormValues((current) => ({ ...current, [key]: value }))} onCancel={() => setFormOpen(false)} onSubmit={() => void saveRecord()} />}</div>{error && <div role="alert" className="global-error-alert flex items-center justify-between gap-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button type="button" aria-label="Close error message" onClick={() => setError('')} className="shrink-0 text-lg font-semibold leading-none text-red-500 hover:text-red-700">×</button></div>}</main>
   </div>
 }
 
@@ -316,10 +358,10 @@ function EntityForm({ entity, values, editing, saving, records, onChange, onCanc
   const fields = formFields[entity]
   const options: Record<string, string[]> = {
     condition: ['NEW', 'LIKE_NEW', 'GOOD', 'FAIR'],
-    status: ['AVAILABLE', 'RESERVED', 'SOLD'],
+    status: entity === 'Exchange' ? ['PENDING', 'COMPLETED', 'CANCELLED'] : entity === 'MeetingProposal' ? ['PENDING', 'ACCEPTED', 'DECLINED', 'CANCELLED'] : ['AVAILABLE', 'RESERVED', 'SOLD'],
     category: ['BOOKS', 'CALCULATORS', 'LAB_EQUIPMENT', 'FURNITURE', 'OTHER'],
-    type: ['SMART_MATCH', 'OTHER'],
-    eventType: ['LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED'],
+    type: ['SMART_MATCH', 'ORDER_PLACED', 'OTHER'],
+    eventType: ['LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED', 'SMART_MATCH_SHOWN', 'SMART_MATCH_OPENED', 'SMART_MATCH_RESERVED', 'EXCHANGE_CONFIRMED'],
     zoneType: ['LIBRARY', 'STUDENT_CENTER', 'BUILDING_LOBBY', 'PLAZA'],
     sellerId: records.User.map((record) => record.id),
     buyerId: records.User.map((record) => record.id),
@@ -328,13 +370,17 @@ function EntityForm({ entity, values, editing, saving, records, onChange, onCanc
     materialId: records.Material.map((record) => record.id),
     chatRoomId: records.ChatRoom.map((record) => record.id),
     meetingPointId: records.MeetingPoint.map((record) => record.id),
+    exchangeId: records.Exchange.map((record) => record.id),
+    raterId: records.User.map((record) => record.id),
+    proposerId: records.User.map((record) => record.id),
+    ratedId: records.User.map((record) => record.id),
   }
-  return <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/40 p-6"><form onSubmit={(event) => { event.preventDefault(); onSubmit() }} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-7 shadow-2xl"><div className="mb-6 flex items-start justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">{editing ? 'Update record' : 'Create record'}</p><h2 className="mt-1 font-heading text-2xl font-semibold">{labels[entity]}</h2></div><button type="button" onClick={onCancel} className="text-xl text-slate-400 hover:text-slate-700">×</button></div><div className="grid grid-cols-2 gap-4">{fields.map((field) => <label key={field.key} className={field.type === 'checkbox' ? 'col-span-2 flex items-center gap-3 text-sm font-medium' : 'block'}>{field.type === 'checkbox' ? <input type="checkbox" checked={values[field.key] === 'true'} onChange={(event) => onChange(field.key, String(event.target.checked))} /> : <><span className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-slate-500">{field.label}{editing && field.key === 'passwordHash' && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-400">Optional</span>}</span>{options[field.key] ? <select required={field.required} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-indigo-400"><option value="">Select {field.label.toLowerCase()}</option>{options[field.key].map((option) => <option key={option} value={option}>{option}</option>)}</select> : <input required={field.required && !(editing && field.key === 'passwordHash')} type={field.type ?? 'text'} placeholder={editing && field.key === 'passwordHash' && !values[field.key] ? 'Not returned by backend' : undefined} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400" />}</>}</label>)}</div><div className="mt-7 flex justify-end gap-3"><button type="button" onClick={onCancel} className="btn-secondary">Cancel</button><button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving...' : editing ? 'Save changes' : 'Create record'}</button></div></form></div>
+  return <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/40 p-6"><form onSubmit={(event) => { event.preventDefault(); onSubmit() }} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-7 shadow-2xl"><div className="mb-6 flex items-start justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">{editing ? 'Update record' : 'Create record'}</p><h2 className="mt-1 font-heading text-2xl font-semibold">{labels[entity]}</h2></div><button type="button" onClick={onCancel} className="text-xl text-slate-400 hover:text-slate-700">×</button></div><div className="grid grid-cols-2 gap-4">{fields.map((field) => <label key={field.key} className={field.type === 'checkbox' ? 'col-span-2 flex items-center gap-3 text-sm font-medium' : 'block'}>{field.type === 'checkbox' ? <input type="checkbox" checked={values[field.key] === 'true'} onChange={(event) => onChange(field.key, String(event.target.checked))} /> : <><span className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-slate-500">{field.label}{editing && field.key === 'password' && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-400">Optional</span>}</span>{options[field.key] ? <select required={field.required} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-indigo-400"><option value="">Select {field.label.toLowerCase()}</option>{options[field.key].map((option) => <option key={option} value={option}>{option}</option>)}</select> : <input required={field.required && !(editing && field.key === 'password')} type={field.type ?? 'text'} placeholder={editing && field.key === 'password' && !values[field.key] ? 'Leave blank to keep current password' : undefined} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400" />}</>}</label>)}</div><div className="mt-7 flex justify-end gap-3"><button type="button" onClick={onCancel} className="btn-secondary">Cancel</button><button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving...' : editing ? 'Save changes' : 'Create record'}</button></div></form></div>
 }
 
 function DatabaseView({ entity, setEntity, rows, onRefresh, onAdd, editRecord, deleteRecord, deletingId }: { entity: EntityName; setEntity: (entity: EntityName) => void; rows: Entity[]; onRefresh: () => void; onAdd: () => void; editRecord: (id: string) => void; deleteRecord: (id: string) => void; deletingId: string | null }) {
   const headers = entityHeaders[entity]
-  return <div className="space-y-6"><div className="flex items-end justify-between"><div><h2 className="font-heading text-2xl font-semibold">Tables</h2><p className="mt-1 text-sm text-slate-400">Manage records from your Prisma schema</p></div><div className="flex gap-3"><button onClick={onRefresh} className="btn-secondary">↻ Refresh</button><button onClick={onAdd} className="btn-primary">＋ Add {entity}</button></div></div><div className="flex gap-2 border-b border-slate-200">{(Object.keys(labels) as EntityName[]).map((name) => <button key={name} onClick={() => setEntity(name)} className={`border-b-2 px-4 py-3 text-sm font-semibold ${entity === name ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-400'}`}>{labels[name]}{entity === name && <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px]">{rows.length}</span>}</button>)}</div><div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center gap-2 border-b border-slate-100 px-5 py-3 text-xs font-medium text-slate-400"><span aria-hidden="true" className="text-sm text-indigo-500">↔</span><span>Scroll horizontally to view all fields</span></div><div className="table-scroll overflow-x-auto"><table className="min-w-max text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-400"><tr>{headers.map((header) => <th key={header} className="whitespace-nowrap px-5 py-4 font-semibold">{header.replace(/([A-Z])/g, ' $1')}</th>)}<th className="theme-table-sticky sticky right-0 z-10 whitespace-nowrap px-5 py-4 text-right font-semibold shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.5)]">Actions</th></tr></thead><tbody className="divide-y divide-slate-100">{rows.map((row) => <tr key={row.id} className="hover:bg-slate-50">{headers.map((header) => { const value = row[header as keyof Entity]; return <td key={header} title={String(value ?? '')} className="whitespace-nowrap px-5 py-4 text-slate-600">{header === 'status' || header === 'condition' ? <span className="rounded-md bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">{String(value)}</span> : header === 'rating' ? `★ ${String(value)}` : formatTableValue(header, value)}</td> })}<td className="theme-table-sticky sticky right-0 z-10 whitespace-nowrap px-5 py-4 text-right shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.5)]"><div className="flex justify-end gap-2"><button type="button" aria-label={`Edit ${entity} record`} onClick={() => editRecord(row.id)} className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 transition hover:bg-indigo-100">✎ Edit</button><button type="button" aria-label={`Delete ${entity} record`} disabled={deletingId === row.id} onClick={() => void deleteRecord(row.id)} className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50">{deletingId === row.id ? 'Deleting...' : '🗑 Delete'}</button></div></td></tr>)}</tbody></table></div>{rows.length === 0 && <div className="flex flex-col items-center justify-center gap-4 p-12 text-center"><p className="text-sm text-slate-400">No records exist yet for {labels[entity]}.</p><button type="button" onClick={onAdd} className="btn-primary">＋ Add first {entity}</button></div>}<div className="flex justify-between border-t border-slate-100 px-5 py-4 text-xs text-slate-400"><span>Showing {rows.length} records</span><span>Schema: public · {entity}</span></div></div></div>
+  return <div className="space-y-6"><div className="flex items-end justify-between"><div><h2 className="font-heading text-2xl font-semibold">Tables</h2><p className="mt-1 text-sm text-slate-400">Manage records from your Prisma schema</p></div><div className="flex gap-3"><button onClick={onRefresh} className="btn-secondary">↻ Refresh</button><button onClick={onAdd} className="btn-primary">＋ Add {entity}</button></div></div><div className="flex gap-2 border-b border-slate-200">{(Object.keys(labels) as EntityName[]).map((name) => <button key={name} onClick={() => setEntity(name)} className={`border-b-2 px-4 py-3 text-sm font-semibold ${entity === name ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-400'}`}>{labels[name]}{entity === name && <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px]">{rows.length}</span>}</button>)}</div><div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center gap-2 border-b border-slate-100 px-5 py-3 text-xs font-medium text-slate-400"><span aria-hidden="true" className="text-sm text-indigo-500">↔</span><span>Scroll horizontally to view all fields</span></div><div className="table-scroll overflow-x-auto"><table className="min-w-max text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-400"><tr>{headers.map((header) => <th key={header} className="whitespace-nowrap px-5 py-4 font-semibold">{header.replace(/([A-Z])/g, ' $1')}</th>)}<th className="theme-table-sticky sticky right-0 z-10 whitespace-nowrap px-5 py-4 text-right font-semibold shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.5)]">Actions</th></tr></thead><tbody className="divide-y divide-slate-100">{rows.map((row) => <tr key={row.id} className="hover:bg-slate-50">{headers.map((header) => { const value = row[header as keyof Entity]; return <td key={header} title={String(value ?? '')} className="whitespace-nowrap px-5 py-4 text-slate-600">{header === 'status' || header === 'condition' ? <span className="rounded-md bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">{String(value)}</span> : header === 'rating' || header === 'stars' ? `★ ${String(value)}` : formatTableValue(header, value)}</td> })}<td className="theme-table-sticky sticky right-0 z-10 whitespace-nowrap px-5 py-4 text-right shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.5)]"><div className="flex justify-end gap-2"><button type="button" aria-label={`Edit ${entity} record`} onClick={() => editRecord(row.id)} className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 transition hover:bg-indigo-100">✎ Edit</button><button type="button" aria-label={`Delete ${entity} record`} disabled={deletingId === row.id} onClick={() => void deleteRecord(row.id)} className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50">{deletingId === row.id ? 'Deleting...' : '🗑 Delete'}</button></div></td></tr>)}</tbody></table></div>{rows.length === 0 && <div className="flex flex-col items-center justify-center gap-4 p-12 text-center"><p className="text-sm text-slate-400">No records exist yet for {labels[entity]}.</p><button type="button" onClick={onAdd} className="btn-primary">＋ Add first {entity}</button></div>}<div className="flex justify-between border-t border-slate-100 px-5 py-4 text-xs text-slate-400"><span>Showing {rows.length} records</span><span>Schema: public · {entity}</span></div></div></div>
 }
 
 function RoutesView({ routes, error }: { routes: RouteMetadata[]; error: string }) {
@@ -349,8 +395,8 @@ function SchemaView() {
 }
 
 const schemaKeywords = new Set(['generator', 'datasource', 'model', 'enum'])
-const schemaTypes = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Decimal', 'Json', 'User', 'Material', 'ChatRoom', 'Message', 'Exchange', 'MeetingPoint', 'WishlistItem', 'Notification', 'AnalyticsEvent'])
-const schemaConstants = new Set(['NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'AVAILABLE', 'RESERVED', 'SOLD', 'BOOKS', 'CALCULATORS', 'LAB_EQUIPMENT', 'FURNITURE', 'OTHER', 'LIBRARY', 'STUDENT_CENTER', 'BUILDING_LOBBY', 'PLAZA', 'SMART_MATCH', 'LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED'])
+const schemaTypes = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Decimal', 'Json', 'User', 'Material', 'ChatRoom', 'Message', 'Exchange', 'MeetingPoint', 'MeetingProposal', 'ScheduleBlock', 'WishlistItem', 'Notification', 'AnalyticsEvent', 'Rating'])
+const schemaConstants = new Set(['NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'AVAILABLE', 'RESERVED', 'SOLD', 'BOOKS', 'CALCULATORS', 'LAB_EQUIPMENT', 'FURNITURE', 'OTHER', 'LIBRARY', 'STUDENT_CENTER', 'BUILDING_LOBBY', 'PLAZA', 'PENDING', 'COMPLETED', 'CANCELLED', 'ACCEPTED', 'DECLINED', 'TEXT', 'MEETING', 'ORDER_PLACED', 'SMART_MATCH', 'LISTING_VIEW', 'SEARCH', 'CONTACT_SELLER', 'WISHLIST_ADD', 'WISHLIST_REMOVE', 'NOTIFICATION_SENT', 'NOTIFICATION_OPENED', 'SMART_MATCH_SHOWN', 'SMART_MATCH_OPENED', 'SMART_MATCH_RESERVED', 'EXCHANGE_CONFIRMED'])
 
 function renderSchemaLine(line: string): ReactNode {
   if (line.trim().startsWith('//')) return <span className="schema-comment">{line}</span>
@@ -396,3 +442,43 @@ function SqlView({ query, setQuery, queryResult, queryRunning, executedQuery, ru
 }
 
 export default App
+
+function MeetingPointHeatmapView() {
+  const [heatmap, setHeatmap] = useState<MeetingPointHeatmap | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const requestHeatmap = (isActive: () => boolean) =>
+    fetchMeetingPointUsage()
+      .then((rows) => {
+        if (!isActive()) return
+        setHeatmap(toMeetingPointHeatmap(rows))
+        setError('')
+      })
+      .catch((loadError: unknown) => {
+        if (isActive()) setError(loadError instanceof Error ? loadError.message : 'Unable to load BQ12 data')
+      })
+      .finally(() => {
+        if (isActive()) setLoading(false)
+      })
+
+  const load = () => {
+    setLoading(true)
+    void requestHeatmap(() => true)
+  }
+
+  useEffect(() => {
+    let active = true
+    void requestHeatmap(() => active)
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const cellStyle = (count: number) => ({
+    backgroundColor: count === 0 || !heatmap ? undefined : `rgba(79, 70, 229, ${0.15 + 0.85 * (count / heatmap.maxCount)})`,
+    color: heatmap && count / heatmap.maxCount > 0.5 ? 'white' : undefined,
+  })
+
+  return <div className="space-y-6"><div className="flex items-end justify-between"><div><h2 className="font-heading text-2xl font-semibold">Meeting spots by hour</h2><p className="mt-1 text-sm text-slate-400">Completed exchanges per meeting point and local hour (America/Bogota)</p></div><button onClick={load} disabled={loading} className="btn-secondary">{loading ? 'Loading…' : '↻ Refresh'}</button></div>{error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}{heatmap && (heatmap.points.length === 0 ? <div className="rounded-2xl border border-slate-200 bg-white p-8 text-sm text-slate-500">No completed exchanges with a meeting point yet.</div> : <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm"><table className="w-full text-center text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-400"><tr><th className="px-4 py-3 text-left font-semibold">Meeting point</th>{heatmap.hours.map((hour) => <th key={hour} className="px-2 py-3 font-mono font-semibold">{String(hour).padStart(2, '0')}h</th>)}<th className="px-4 py-3 font-semibold">Total</th></tr></thead><tbody className="divide-y divide-slate-100">{heatmap.points.map((point) => <tr key={point.name}><td className="whitespace-nowrap px-4 py-3 text-left font-medium text-slate-700">{point.name}</td>{heatmap.hours.map((hour) => { const count = point.counts[hour] ?? 0; return <td key={hour} className="px-2 py-3 font-mono text-xs" style={cellStyle(count)}>{count || ''}</td> })}<td className="px-4 py-3 font-mono font-semibold">{point.total}</td></tr>)}</tbody></table></div>)}<details className="rounded-2xl border border-slate-200 bg-white p-5 text-xs"><summary className="cursor-pointer font-semibold text-slate-600">SQL</summary><pre className="mt-3 overflow-x-auto font-mono text-slate-500">{MEETING_POINT_USAGE_SQL}</pre></details></div>
+}

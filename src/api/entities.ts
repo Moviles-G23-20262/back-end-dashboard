@@ -1,5 +1,6 @@
 import type { EntityName } from '../types'
 import { apiBase } from './config'
+import { adminFetch } from './adminKey'
 
 const entityPaths: Record<EntityName, string> = {
   User: '/users',
@@ -8,14 +9,17 @@ const entityPaths: Record<EntityName, string> = {
   Message: '/messages',
   Exchange: '/exchanges',
   MeetingPoint: '/meeting-points',
+  MeetingProposal: '/meeting-proposals',
+  ScheduleBlock: '/schedule-blocks',
   WishlistItem: '/wishlist-items',
   Notification: '/notifications',
   AnalyticsEvent: '/analytics-events',
+  Rating: '/ratings',
 }
 
 
 export async function listEntity<T>(entity: EntityName): Promise<T[]> {
-  const response = await fetch(`${apiBase}${entityPaths[entity]}`)
+  const response = await adminFetch(`${apiBase}${entityPaths[entity]}`)
 
   if (!response.ok) {
     let message = `Unable to load ${entity} records (${response.status})`
@@ -45,7 +49,7 @@ export async function createEntity<T>(
   entity: EntityName,
   payload: Record<string, unknown>
 ): Promise<T> {
-  const response = await fetch(`${apiBase}${entityPaths[entity]}`, {
+  const response = await adminFetch(`${apiBase}${entityPaths[entity]}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -81,7 +85,7 @@ export async function updateEntity<T>(
   recordId: string,
   payload: Record<string, unknown>
 ): Promise<T> {
-  const response = await fetch(`${apiBase}${entityPaths[entity]}/${recordId}`, {
+  const response = await adminFetch(`${apiBase}${entityPaths[entity]}/${recordId}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -116,7 +120,7 @@ export async function deleteEntity(
   entity: EntityName,
   recordId: string
 ): Promise<void> {
-  const response = await fetch(
+  const response = await adminFetch(
     `${apiBase}${entityPaths[entity]}/${recordId}`,
     {
       method: 'DELETE',
