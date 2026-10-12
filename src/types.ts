@@ -127,3 +127,14 @@ export interface PaginatedResponse<T> {
   pageSize: number
   total: number
 }
+
+export interface FunnelStat {
+  mean: number
+  median: number
+  p75: number
+}
+
+export interface BuyerJourneyFunnel {
+  views_before_contact: FunnelStat
+  views_before_exchange: FunnelStat
+}
