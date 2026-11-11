@@ -196,3 +196,9 @@ export interface MeetingPointHeatmap {
   points: Array<{ name: string; total: number; counts: Record<number, number> }>
   maxCount: number
 }
+
+// GET /analytics/average-ticket/ (BQ15): COP, null while there is no completed sale.
+export interface AverageTicket {
+  globalAverage: number | null
+  byCondition: Record<string, number>
+}
