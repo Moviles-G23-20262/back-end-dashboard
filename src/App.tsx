@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { createEntity, deleteEntity, listEntity, updateEntity } from './api/entities'
 import { backendLabel } from './api/config'
@@ -360,10 +360,24 @@ const conditionLabel = (value: string) => value.toLowerCase().replace(/_/g, ' ')
 function AverageTicketSection() {
   const [data, setData] = useState<AverageTicket | null>(null)
   const [error, setError] = useState('')
-  useEffect(() => { getAverageTicket().then(setData).catch((e: unknown) => setError(e instanceof Error ? e.message : 'Unable to load average ticket')) }, [])
+  const [loading, setLoading] = useState(false)
+  const load = useCallback(() => {
+    setLoading(true)
+    getAverageTicket()
+      .then((answer) => { setData(answer); setError('') })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Unable to load average ticket'))
+      .finally(() => setLoading(false))
+  }, [])
+  // Loaded when shown, then again every 30 s: a sale completed in the app shows up without reloading the page.
+  useEffect(() => {
+    load()
+    const timer = window.setInterval(load, 30_000)
+    return () => window.clearInterval(timer)
+  }, [load])
   const rows = data ? Object.entries(data.byCondition ?? {}).filter(([, value]) => Number.isFinite(value)) : []
   const highest = Math.max(0, ...rows.map(([, value]) => value))
-  return <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="font-heading text-xl font-semibold">BQ15 · Average ticket</h2><p className="mt-1 text-sm text-slate-400">What a completed campus sale is worth, overall and per item condition (COP)</p>{error ? <div role="alert" className="mt-5 text-sm text-red-600">{error}</div> : !data ? <div className="mt-5 text-sm text-slate-400">Loading average ticket...</div> : !Number.isFinite(data.globalAverage) ? <div className="mt-5 text-sm text-slate-400">No completed sales yet.</div> : <div className="mt-5 grid grid-cols-[1fr_2fr] gap-5"><div className="rounded-xl border border-slate-100 p-3"><div className="text-xs uppercase text-slate-400">overall</div><div className="font-heading text-2xl font-semibold">{copFormat.format(data.globalAverage as number)}</div></div><div className="space-y-3">{rows.map(([condition, value]) => <div key={condition}><div className="flex justify-between text-xs text-slate-500"><span>{conditionLabel(condition)}</span><span className="font-semibold">{copFormat.format(value)}</span></div><div className="mt-1 h-2 rounded-full bg-slate-100"><div className="h-2 rounded-full bg-indigo-500" style={{ width: `${highest ? (value / highest) * 100 : 0}%` }} /></div></div>)}</div></div>}</section>
+  const updated = data?.generatedAt ? new Date(data.generatedAt).toLocaleTimeString() : ''
+  return <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><div className="flex items-start justify-between gap-4"><div><h2 className="font-heading text-xl font-semibold">BQ15 · Average ticket</h2><p className="mt-1 text-sm text-slate-400">What a completed campus sale is worth, overall and per item condition (COP)</p></div><button type="button" onClick={load} disabled={loading} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50">{loading ? 'Refreshing...' : 'Refresh'}</button></div>{error && <div role="alert" className="mt-5 text-sm text-red-600">{error}{data ? ' - showing the last answer received.' : ''}</div>}{!data ? (!error && <div className="mt-5 text-sm text-slate-400">Loading average ticket...</div>) : !Number.isFinite(data.globalAverage) ? <div className="mt-5 text-sm text-slate-400">No completed sales yet.</div> : <div className="mt-5 grid grid-cols-[1fr_2fr] gap-5"><div className="rounded-xl border border-slate-100 p-3"><div className="text-xs uppercase text-slate-400">overall</div><div className="font-heading text-2xl font-semibold">{copFormat.format(data.globalAverage as number)}</div>{data.completedSales !== undefined && <div className="mt-1 text-xs text-slate-400">{data.completedSales} completed {data.completedSales === 1 ? 'sale' : 'sales'}</div>}</div><div className="space-y-3">{rows.map(([condition, value]) => <div key={condition}><div className="flex justify-between text-xs text-slate-500"><span>{conditionLabel(condition)}</span><span className="font-semibold">{copFormat.format(value)}</span></div><div className="mt-1 h-2 rounded-full bg-slate-100"><div className="h-2 rounded-full bg-indigo-500" style={{ width: `${highest ? (value / highest) * 100 : 0}%` }} /></div></div>)}</div></div>}{updated && <div className="mt-4 text-xs text-slate-400">Live from the database · updated {updated}</div>}</section>
 }
 
 function EntityForm({ entity, values, editing, saving, records, onChange, onCancel, onSubmit }: { entity: EntityName; values: FormValues; editing: boolean; saving: boolean; records: Record<EntityName, Entity[]>; onChange: (key: string, value: string) => void; onCancel: () => void; onSubmit: () => void }) {
