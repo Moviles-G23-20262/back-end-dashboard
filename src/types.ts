@@ -201,4 +201,8 @@ export interface MeetingPointHeatmap {
 export interface AverageTicket {
   globalAverage: number | null
   byCondition: Record<string, number>
+  /** How many completed exchanges the averages come from: it goes up with every sale the app completes. */
+  completedSales?: number
+  /** When the analytics service computed this answer (ISO), straight from the database. */
+  generatedAt?: string
 }
